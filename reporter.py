@@ -103,7 +103,7 @@ def print_unattended_report(results: list[dict], clean_result: CleanResult) -> s
     lines = ["# Mac Maid Nightly Report\n"]
     for r in results:
         lines.append(f"## {r['category']} [{r['risk'].upper()}]")
-        lines.append(f"{r['suggestion']}\n")
+        lines.append(f"{r['suggestion'] or ''}\n")
         for item in r["items"][:10]:
             lines.append(f"- {item['label']} ({format_size(item['size_bytes'])})")
         if len(r["items"]) > 10:
