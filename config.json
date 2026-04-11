@@ -1,0 +1,23 @@
+{
+  "large_file_threshold_mb": 500,
+  "old_file_days": 180,
+  "log_retention_days": 7,
+  "scan_paths": ["~/Downloads", "~/Desktop", "~/Documents"],
+  "dev_scan_paths": ["~/", "/Volumes/Ext Data"],
+  "email_report_to": "kmmsubs@gmail.com",
+  "modules": {
+    "caches": true,
+    "logs": true,
+    "trash": true,
+    "large_files": true,
+    "duplicates": true,
+    "dev_junk": true,
+    "browsers": true,
+    "mail": true,
+    "login_items": true,
+    "disk_health": true,
+    "memory": true,
+    "thermal": true
+  },
+  "permanent_delete": false
+}
