@@ -1,4 +1,3 @@
-import os
 from unittest.mock import patch
 from scheduler import build_plist, PLIST_PATH
 

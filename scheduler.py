@@ -38,13 +38,13 @@ def build_plist(time_str: str) -> str:
 
 
 def install(time_str: str) -> bool:
-    plist = build_plist(time_str)
-    with open(PLIST_PATH, "w") as f:
-        f.write(plist)
     try:
+        plist = build_plist(time_str)
+        with open(PLIST_PATH, "w") as f:
+            f.write(plist)
         subprocess.run(["launchctl", "load", PLIST_PATH], check=True, capture_output=True)
         return True
-    except subprocess.CalledProcessError:
+    except Exception:
         return False
 
 
