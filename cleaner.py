@@ -1,4 +1,5 @@
 import os
+import shutil
 from dataclasses import dataclass, field
 from send2trash import send2trash
 
@@ -20,7 +21,6 @@ def clean_items(items: list[dict], permanent: bool = False) -> CleanResult:
                 raise FileNotFoundError(f"Not found: {path}")
             if permanent:
                 if os.path.isdir(path):
-                    import shutil
                     shutil.rmtree(path)
                 else:
                     os.remove(path)
