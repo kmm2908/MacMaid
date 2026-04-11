@@ -43,6 +43,7 @@ def run_scan(enabled_modules: list[str]) -> list[dict]:
             progress.update(task, description=f"Scanning {name}...")
             scan_fn = MODULES.get(name)
             if not scan_fn:
+                progress.advance(task)
                 continue
             try:
                 result = scan_fn()
