@@ -7,7 +7,7 @@ ActionType = Literal["trash", "empty-trash", "none"]
 ModuleResult = dict
 
 
-def make_item(path: str, size_bytes: int, label: str, meta: dict = None) -> dict:
+def make_item(path: str, size_bytes: int, label: str, meta: dict | None = None) -> dict:
     return {
         "path": path,
         "size_bytes": size_bytes,
@@ -21,7 +21,7 @@ def make_result(
     risk: RiskLevel,
     action: ActionType = "trash",
     suggestion: str = "",
-    items: list = None,
+    items: list | None = None,
 ) -> dict:
     items = items or []
     return {
