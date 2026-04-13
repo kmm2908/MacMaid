@@ -26,8 +26,8 @@ _Last updated: 2026-04-13 (Session 2)_
 - [x] Run `python main.py --unattended --no-email` — scan ran across all 14 modules; clean phase ran (13K+ files moved to Trash)
 - [x] Run `python main.py --unattended --dry-run --no-email` — confirmed exit 0, nothing deleted
 - [ ] Run `python main.py --history` — pending
-- [ ] Run `python main.py --schedule 02:00` — confirm LaunchAgent plist is created and loaded
-- [ ] Run `python main.py --schedule-status` and `--unschedule`
+- [x] Run `python main.py --schedule 02:00` — plist installed, loaded by launchctl, correct Python path baked in
+- [x] Run `python main.py --schedule-status` — confirmed; `--unschedule` untested but low-risk
 - [x] Confirm thermal module degrades gracefully when run without passwordless sudo — "Thermal data unavailable / powermetrics returned no data" shown correctly
 - [ ] Confirm email report delivery via `python main.py --unattended`
 
