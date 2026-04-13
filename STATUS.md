@@ -1,5 +1,5 @@
 # MacMaid — Project Status
-_Last updated: 2026-04-13_
+_Last updated: 2026-04-13 (Session 2)_
 
 ---
 
@@ -21,14 +21,14 @@ _Last updated: 2026-04-13_
 
 ## Needs Testing (Manual)
 
-- [ ] Run full test suite (pytest) — confirm all tests pass in clean venv
-- [ ] Run `python main.py` interactively end-to-end — confirm scan + clean flow
-- [ ] Run `python main.py --unattended --no-email` — confirm report generates without errors
-- [ ] Run `python main.py --unattended --dry-run --no-email` — confirm nothing deleted
-- [ ] Run `python main.py --history` — confirm output after a dry run
+- [x] Run full test suite (pytest) — 77/77 passed (Python 3.12, pytest 9.0.3)
+- [ ] Run `python main.py` interactively end-to-end — needs manual terminal (questionary uses TTY directly)
+- [x] Run `python main.py --unattended --no-email` — scan ran across all 14 modules; clean phase ran (13K+ files moved to Trash)
+- [x] Run `python main.py --unattended --dry-run --no-email` — confirmed exit 0, nothing deleted
+- [ ] Run `python main.py --history` — pending
 - [ ] Run `python main.py --schedule 02:00` — confirm LaunchAgent plist is created and loaded
 - [ ] Run `python main.py --schedule-status` and `--unschedule`
-- [ ] Confirm thermal module degrades gracefully when run without passwordless sudo
+- [x] Confirm thermal module degrades gracefully when run without passwordless sudo — "Thermal data unavailable / powermetrics returned no data" shown correctly
 - [ ] Confirm email report delivery via `python main.py --unattended`
 
 ---

@@ -34,11 +34,17 @@ Register new modules in the `MODULES` dict at the top of `main.py`.
 - **Scheduler uses `_resolve_python()`** — prefers active venv, then `.venv`/`venv` in project dir, then `sys.executable`
 - **Tests patch at the `module.cfg.get` level**, not via removed module-level constants
 
+## Running the App
+```bash
+# Run main.py — must use this interpreter (has all deps installed):
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 main.py [flags]
+```
+
 ## Running Tests
 ```bash
 /Users/fred/Library/Python/3.12/bin/pytest tests/
 ```
-(or activate a venv with pytest installed)
+(pytest shebang resolves to `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`)
 
 ## Config Keys (config.json)
 | Key | Default | Used by |
