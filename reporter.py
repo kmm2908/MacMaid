@@ -99,8 +99,9 @@ def print_summary(result: CleanResult) -> None:
     console.print(Panel(text, title="[bold green]Done[/bold green]", border_style="green"))
 
 
-def print_unattended_report(results: list[dict], clean_result: CleanResult) -> str:
-    lines = ["# Mac Maid Nightly Report\n"]
+def print_unattended_report(results: list[dict], clean_result: CleanResult, dry_run: bool = False) -> str:
+    heading = "# Mac Maid Nightly Report — DRY RUN (nothing deleted)\n" if dry_run else "# Mac Maid Nightly Report\n"
+    lines = [heading]
     for r in results:
         lines.append(f"## {r['category']} [{r['risk'].upper()}]")
         lines.append(f"{r['suggestion'] or ''}\n")

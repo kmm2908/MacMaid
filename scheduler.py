@@ -7,8 +7,30 @@ PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/com.macmaid.nightly.plis
 SCRIPT_PATH = str(Path(__file__).parent / "main.py")
 
 
+def _resolve_python() -> str:
+    """Return the Python executable to embed in the LaunchAgent plist.
+
+    Prefers the active venv interpreter so the LaunchAgent has access to
+    installed packages. Falls back to the current interpreter if no venv
+    is found.
+    """
+    if sys.prefix != sys.base_prefix:
+        # Already running inside a venv — use it
+        return sys.executable
+
+    # Look for a venv next to this file
+    project_dir = Path(__file__).parent
+    for name in (".venv", "venv"):
+        candidate = project_dir / name / "bin" / "python3"
+        if candidate.exists():
+            return str(candidate)
+
+    return sys.executable
+
+
 def build_plist(time_str: str) -> str:
     hour, minute = (int(x) for x in time_str.split(":"))
+    python = _resolve_python()
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -18,7 +40,7 @@ def build_plist(time_str: str) -> str:
     <string>com.macmaid.nightly</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{sys.executable}</string>
+        <string>{python}</string>
         <string>{SCRIPT_PATH}</string>
         <string>--unattended</string>
     </array>

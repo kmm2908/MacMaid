@@ -4,8 +4,6 @@ from collections import defaultdict
 from modules.base import make_result, make_item
 import config as cfg
 
-SCAN_PATHS = [os.path.expanduser(p) for p in (cfg.get("scan_paths") or ["~/Downloads"])]
-
 
 def _md5(path: str) -> str | None:
     h = hashlib.md5()
@@ -19,9 +17,10 @@ def _md5(path: str) -> str | None:
 
 
 def scan() -> dict:
+    scan_paths = [os.path.expanduser(p) for p in (cfg.get("scan_paths") or ["~/Downloads"])]
     hash_map: dict[str, list[dict]] = defaultdict(list)
 
-    for base in SCAN_PATHS:
+    for base in scan_paths:
         if not os.path.isdir(base):
             continue
         for dirpath, _, filenames in os.walk(base):

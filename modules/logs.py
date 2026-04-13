@@ -1,10 +1,10 @@
 import os
 import time
 from modules.base import make_result, make_item
+import config as cfg
 
 USER_LOG_DIR = os.path.expanduser("~/Library/Logs")
 SYS_LOG_DIR = "/private/var/log"
-RETENTION_DAYS = 7
 
 
 def _find_old_logs(base: str, cutoff: float) -> list[dict]:
@@ -24,7 +24,8 @@ def _find_old_logs(base: str, cutoff: float) -> list[dict]:
 
 
 def scan() -> dict:
-    cutoff = time.time() - (RETENTION_DAYS * 86400)
+    retention_days = cfg.get("log_retention_days") or 7
+    cutoff = time.time() - (retention_days * 86400)
     items = _find_old_logs(USER_LOG_DIR, cutoff) + _find_old_logs(SYS_LOG_DIR, cutoff)
     total = sum(i["size_bytes"] for i in items)
     size_mb = total / (1024 ** 2)
@@ -32,6 +33,6 @@ def scan() -> dict:
         "Logs",
         "safe",
         action="trash",
-        suggestion=f"Remove {len(items)} log files older than {RETENTION_DAYS} days ({size_mb:.0f} MB)",
+        suggestion=f"Remove {len(items)} log files older than {retention_days} days ({size_mb:.0f} MB)",
         items=items,
     )

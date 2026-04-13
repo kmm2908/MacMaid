@@ -11,10 +11,12 @@ import reporter
 import cleaner as cleaner_mod
 import emailer
 import scheduler
+import history
 
 from modules import (
     caches, logs, trash, large_files, duplicates,
-    dev_junk, browsers, mail, login_items, disk_health, memory, thermal
+    dev_junk, browsers, mail, login_items, disk_health, memory, thermal,
+    ios_backups, xcode_sims,
 )
 
 console = Console()
@@ -32,6 +34,8 @@ MODULES = {
     "disk_health": disk_health.scan,
     "memory": memory.scan,
     "thermal": thermal.scan,
+    "ios_backups": ios_backups.scan,
+    "xcode_sims": xcode_sims.scan,
 }
 
 
@@ -97,18 +101,24 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
     return total_result
 
 
-def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_email: bool) -> None:
+def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_email: bool, dry_run: bool = False) -> None:
     items_to_clean = [
         item
         for r in results
         if r["risk"] == "safe" and r["action"] != "none"
         for item in r["items"]
     ]
-    clean_result = cleaner_mod.clean_items(items_to_clean, permanent=permanent)
-    report_text = reporter.print_unattended_report(results, clean_result)
+    if dry_run:
+        clean_result = cleaner_mod.CleanResult()
+    else:
+        clean_result = cleaner_mod.clean_items(items_to_clean, permanent=permanent)
+    report_text = reporter.print_unattended_report(results, clean_result, dry_run=dry_run)
+
+    history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
-        subject = f"Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
+        prefix = "[DRY RUN] " if dry_run else ""
+        subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
         emailer.send_report(subject, report_text, to_email)
 
 
@@ -118,9 +128,11 @@ def main() -> None:
     parser.add_argument("--modules", nargs="+", help="Run specific modules only")
     parser.add_argument("--permanent", action="store_true", help="Delete permanently instead of Trash")
     parser.add_argument("--no-email", action="store_true", help="Skip email in unattended mode")
+    parser.add_argument("--dry-run", action="store_true", help="Scan and report without deleting anything")
     parser.add_argument("--schedule", metavar="HH:MM", help="Install nightly LaunchAgent")
     parser.add_argument("--unschedule", action="store_true", help="Remove LaunchAgent")
     parser.add_argument("--schedule-status", action="store_true", help="Show schedule status")
+    parser.add_argument("--history", action="store_true", help="Show last 10 run history entries")
     args = parser.parse_args()
 
     if args.schedule:
@@ -137,6 +149,10 @@ def main() -> None:
         console.print(scheduler.status())
         return
 
+    if args.history:
+        console.print(history.format_history())
+        return
+
     reporter.print_banner()
 
     enabled = args.modules or [
@@ -150,7 +166,7 @@ def main() -> None:
 
     if args.unattended:
         to_email = cfg.get("email_report_to") or ""
-        unattended_mode(results, permanent, to_email, args.no_email)
+        unattended_mode(results, permanent, to_email, args.no_email, dry_run=args.dry_run)
     else:
         clean_result = interactive_mode(results, permanent)
         reporter.print_summary(clean_result)

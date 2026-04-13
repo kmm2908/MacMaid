@@ -1,8 +1,21 @@
 import subprocess
 import json
+import getpass
 from modules.base import make_result, make_item
 
 PRESSURE_LEVELS = ["Nominal", "Light", "Moderate", "Heavy", "Critical"]
+
+
+def _has_passwordless_sudo() -> bool:
+    """Return True if powermetrics can be run via sudo without a password prompt."""
+    try:
+        subprocess.run(
+            ["sudo", "-n", "/usr/bin/powermetrics", "--help"],
+            capture_output=True, timeout=5
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _run_powermetrics() -> str | None:
@@ -22,6 +35,20 @@ def _run_powermetrics() -> str | None:
 
 
 def scan() -> dict:
+    if not _has_passwordless_sudo():
+        user = getpass.getuser()
+        return make_result(
+            "Thermal & Performance",
+            "inform-only",
+            action="none",
+            suggestion=(
+                f"Thermal scan requires passwordless sudo for powermetrics. "
+                f"To enable, run: sudo visudo  and add: "
+                f"{user} ALL=(ALL) NOPASSWD: /usr/bin/powermetrics"
+            ),
+            items=[make_item("powermetrics", 0, "Thermal scan skipped — sudo password required")],
+        )
+
     raw = _run_powermetrics()
 
     if not raw:
@@ -29,8 +56,8 @@ def scan() -> dict:
             "Thermal & Performance",
             "inform-only",
             action="none",
-            suggestion="Requires sudo access. Add sudoers rule: fred ALL=(ALL) NOPASSWD: /usr/bin/powermetrics",
-            items=[make_item("powermetrics", 0, "Thermal data unavailable — sudoers rule needed")],
+            suggestion="powermetrics returned no data",
+            items=[make_item("powermetrics", 0, "Thermal data unavailable")],
         )
 
     try:

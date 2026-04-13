@@ -4,15 +4,14 @@ from datetime import datetime
 from modules.base import make_result, make_item
 import config as cfg
 
-SCAN_PATHS = [os.path.expanduser(p) for p in (cfg.get("scan_paths") or ["~/Downloads"])]
-THRESHOLD_BYTES = (cfg.get("large_file_threshold_mb") or 500) * 1024 * 1024
-OLD_FILE_SECONDS = (cfg.get("old_file_days") or 180) * 86400
-
 
 def scan() -> dict:
+    scan_paths = [os.path.expanduser(p) for p in (cfg.get("scan_paths") or ["~/Downloads"])]
+    threshold_bytes = (cfg.get("large_file_threshold_mb") or 500) * 1024 * 1024
+    old_file_seconds = (cfg.get("old_file_days") or 180) * 86400
     items = []
     now = time.time()
-    for base in SCAN_PATHS:
+    for base in scan_paths:
         if not os.path.isdir(base):
             continue
         for dirpath, _, filenames in os.walk(base):
@@ -21,7 +20,7 @@ def scan() -> dict:
                 try:
                     stat = os.stat(fp)
                     age = now - stat.st_mtime
-                    if stat.st_size >= THRESHOLD_BYTES or age >= OLD_FILE_SECONDS:
+                    if stat.st_size >= threshold_bytes or age >= old_file_seconds:
                         last_opened = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
                         items.append(make_item(
                             fp, stat.st_size, f,
