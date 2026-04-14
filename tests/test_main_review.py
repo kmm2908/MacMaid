@@ -109,3 +109,15 @@ def test_unattended_email_no_review_link_when_no_large_files(tmp_path, monkeypat
 
     assert len(sent_bodies) == 1
     assert "macmaid://review" not in sent_bodies[0]
+
+
+def test_unattended_dry_run_does_not_save_results(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "RESULTS_PATH", tmp_path / "results.json")
+    results = [{"category": "caches", "risk": "safe", "items": [], "total_size_bytes": 0,
+                "suggestion": "", "action": "trash"}]
+    with patch("main.reporter.print_unattended_report", return_value="report"), \
+         patch("main.history.record"), \
+         patch("main.emailer.send_report"):
+        main.unattended_mode(results, False, "", no_email=True, dry_run=True)
+
+    assert not (tmp_path / "results.json").exists()

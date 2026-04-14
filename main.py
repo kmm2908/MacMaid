@@ -123,7 +123,8 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
         clean_result = cleaner_mod.clean_items(items_to_clean, permanent=permanent)
     report_text = reporter.print_unattended_report(results, clean_result, dry_run=dry_run)
 
-    save_results(results)
+    if not dry_run:
+        save_results(results)
     history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
