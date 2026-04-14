@@ -32,7 +32,7 @@ def _make_app(items: list[dict]) -> Flask:
 
     @app.post("/api/delete")
     def delete():
-        paths = request.json.get("paths", [])
+        paths = (request.get_json(silent=True) or {}).get("paths", [])
         to_clean = [path_index[p] for p in paths if p in path_index]
         result = cleaner_mod.clean_items(to_clean)
         return jsonify({
@@ -40,11 +40,12 @@ def _make_app(items: list[dict]) -> Flask:
             "errors": result.errors,
             "bytes_freed": result.bytes_freed,
             "error_paths": result.error_paths,
+            "moved_paths": result.moved_paths,
         })
 
     @app.post("/api/reveal")
     def reveal():
-        path = request.json.get("path", "")
+        path = (request.get_json(silent=True) or {}).get("path", "")
         subprocess.run(["open", "-R", path], check=False)
         return jsonify({"ok": True})
 
@@ -134,7 +135,7 @@ function sortAndRender(){filtered.sort(function(a,b){var av=val(a,sortKey),bv=va
 function renderTable(){var body=document.getElementById('tbody');body.innerHTML='';filtered.forEach(function(f){var tr=document.createElement('tr');tr.dataset.path=f.path;tr.innerHTML='<td><input type="checkbox" onchange="updateSel()"></td>'+'<td>'+esc(f.label)+'</td>'+'<td class="path" title="'+esc(f.path)+'">'+esc(f.path)+'</td>'+'<td class="size">'+fmt(f.size_bytes)+'</td>'+'<td class="size">'+(f.meta&&f.meta.age_days!=null?f.meta.age_days:'&#x2014;')+'</td>'+'<td>'+(f.meta&&f.meta.last_modified?f.meta.last_modified:'&#x2014;')+'</td>'+'<td><button class="reveal" title="Reveal in Finder" data-path="'+esc(f.path)+'" onclick="reveal(this.dataset.path)">&#x1f4c2;</button></td>';body.appendChild(tr);});document.getElementById('count').textContent=filtered.length.toLocaleString()+' files shown';updateSel();}
 function updateSel(){var rows=document.querySelectorAll('#tbody tr');var cnt=0,sz=0;var pathMap={};allFiles.forEach(function(f){pathMap[f.path]=f;});rows.forEach(function(tr){var cb=tr.querySelector('input');if(cb&&cb.checked){cnt++;var f=pathMap[tr.dataset.path];if(f)sz+=f.size_bytes;}});document.getElementById('selCount').textContent=cnt;document.getElementById('selSize').textContent=fmt(sz);document.getElementById('trashBtn').disabled=cnt===0;}
 function toggleAll(c){document.querySelectorAll('#tbody input[type=checkbox]').forEach(function(cb){cb.checked=c;});updateSel();}
-async function moveToTrash(){var paths=[];document.querySelectorAll('#tbody tr').forEach(function(tr){var cb=tr.querySelector('input');if(cb&&cb.checked)paths.push(tr.dataset.path);});if(!confirm('Move '+paths.length+' file(s) to Trash?'))return;var r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:paths})});var res=await r.json();bytesFreed+=res.bytes_freed;var deleted=new Set(paths.slice(0,res.moved));allFiles=allFiles.filter(function(f){return!deleted.has(f.path);});var msg='<span class="freed">Freed '+fmt(bytesFreed)+' total this session.</span>';if(res.errors>0)msg+=' <span class="err">'+res.errors+' error(s): '+res.error_paths.map(function(e){return esc(e[0]);}).join(', ')+'</span>';document.getElementById('summary').innerHTML=msg;applyFilter();}
+async function moveToTrash(){var paths=[];document.querySelectorAll('#tbody tr').forEach(function(tr){var cb=tr.querySelector('input');if(cb&&cb.checked)paths.push(tr.dataset.path);});if(!confirm('Move '+paths.length+' file(s) to Trash?'))return;var r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:paths})});var res=await r.json();bytesFreed+=res.bytes_freed;var deleted=new Set(res.moved_paths||[]);allFiles=allFiles.filter(function(f){return!deleted.has(f.path);});var msg='<span class="freed">Freed '+fmt(bytesFreed)+' total this session.</span>';if(res.errors>0)msg+=' <span class="err">'+res.errors+' error(s): '+res.error_paths.map(function(e){return esc(e[0]);}).join(', ')+'</span>';document.getElementById('summary').innerHTML=msg;applyFilter();}
 async function reveal(path){await fetch('/api/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path})});}
 async function done(){await fetch('/api/quit',{method:'POST'});document.body.innerHTML='<p style="padding:40px;color:#aaa;font-family:sans-serif">MacMaid server stopped. You can close this tab.</p>';}
 load();

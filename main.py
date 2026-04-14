@@ -174,7 +174,7 @@ def main() -> None:
     if args.review:
         import reviewer
         if not RESULTS_PATH.exists():
-            console.print("[red]No scan data found. Run MacMaid first (--unattended or interactive).[/red]")
+            console.print("[red]No scan data found. Run MacMaid with --unattended first.[/red]")
             sys.exit(1)
         results = json.loads(RESULTS_PATH.read_text())
         large = next(
