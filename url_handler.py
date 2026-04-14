@@ -54,3 +54,13 @@ def _create_bundle(python_path: str, script_path: str) -> None:
     exe = macos / "MacMaid"
     exe.write_text(_executable(python_path, script_path))
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _register_bundle() -> None:
+    subprocess.run([_LSREGISTER, "-f", str(BUNDLE_DIR)], check=False, capture_output=True)
+
+
+def setup(python_path: str, script_path: str) -> None:
+    """Create MacMaid.app bundle and register macmaid:// URL scheme. Idempotent."""
+    _create_bundle(python_path, script_path)
+    _register_bundle()

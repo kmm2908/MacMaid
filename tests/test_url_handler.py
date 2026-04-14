@@ -1,6 +1,8 @@
 import stat
+import subprocess
 from pathlib import Path
 import url_handler
+from unittest.mock import patch, MagicMock
 
 
 def test_info_plist_registers_macmaid_scheme():
@@ -29,3 +31,22 @@ def test_create_bundle_writes_expected_files(tmp_path, monkeypatch):
     assert exe_path.stat().st_mode & stat.S_IXUSR  # executable bit set
     assert "<string>macmaid</string>" in plist_path.read_text()
     assert "/usr/bin/python3" in exe_path.read_text()
+
+
+def test_register_bundle_calls_lsregister(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    url_handler._register_bundle()
+    assert any(url_handler._LSREGISTER in str(c) for c in calls)
+    assert any(str(url_handler.BUNDLE_DIR) in str(c) for c in calls)
+
+
+def test_setup_creates_bundle_and_registers(tmp_path, monkeypatch):
+    monkeypatch.setattr(url_handler, "BUNDLE_DIR", tmp_path / "MacMaid.app")
+    registered = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: registered.append(cmd))
+
+    url_handler.setup("/usr/bin/python3", "/home/user/main.py")
+
+    assert (tmp_path / "MacMaid.app" / "Contents" / "Info.plist").exists()
+    assert len(registered) == 1  # lsregister called once
