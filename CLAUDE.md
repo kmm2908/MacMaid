@@ -13,6 +13,8 @@ reporter.py      — Rich panels/tables/progress; print_unattended_report() for 
 emailer.py       — thin wrapper around ~/.claude/utils/send_email.py
 scheduler.py     — builds and installs LaunchAgent plist; _resolve_python() picks venv Python
 history.py       — appends JSON run records to ~/Library/Logs/mac-maid-history.json
+reviewer.py      — Flask local server + embedded HTML/JS browser review UI; start(items) is the entry point
+url_handler.py   — creates ~/.local/share/MacMaid.app bundle and registers macmaid:// URL scheme via lsregister
 modules/         — one file per scan category, all expose scan() -> dict
 tests/           — one test file per module; run with pytest (configured in pyproject.toml)
 ```
@@ -33,11 +35,19 @@ Register new modules in the `MODULES` dict at the top of `main.py`.
 - **Thermal requires passwordless sudo** — `_has_passwordless_sudo()` checks first and returns an inform-only result if unavailable
 - **Scheduler uses `_resolve_python()`** — prefers active venv, then `.venv`/`venv` in project dir, then `sys.executable`
 - **Tests patch at the `module.cfg.get` level**, not via removed module-level constants
+- **`save_results()` is skipped in dry-run mode** — `unattended_mode()` only writes `mac-maid-last-results.json` when `dry_run=False`
+- **`--schedule` registers the URL scheme** — re-run `--schedule` after a fresh install to create `~/.local/share/MacMaid.app` and register `macmaid://`
 
 ## Running the App
 ```bash
 # Run main.py — must use this interpreter (has all deps installed):
 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 main.py [flags]
+
+# Key flags:
+#   --unattended        silent scan + email report (saves results JSON for --review)
+#   --dry-run           scan without cleaning (does NOT save results JSON)
+#   --review            open browser UI for last saved scan results
+#   --schedule HH:MM    install LaunchAgent + register macmaid:// URL scheme
 ```
 
 ## Running Tests
