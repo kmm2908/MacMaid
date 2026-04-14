@@ -6,9 +6,7 @@ import subprocess
 import threading
 import webbrowser
 
-from flask import Flask, Response, jsonify, request
-
-import cleaner as cleaner_mod
+from flask import Flask, Response, jsonify
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
