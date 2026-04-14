@@ -3,6 +3,8 @@ import sys
 import subprocess
 from pathlib import Path
 
+import url_handler
+
 PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/com.macmaid.nightly.plist")
 SCRIPT_PATH = str(Path(__file__).parent / "main.py")
 
@@ -65,6 +67,7 @@ def install(time_str: str) -> bool:
         with open(PLIST_PATH, "w") as f:
             f.write(plist)
         subprocess.run(["launchctl", "load", PLIST_PATH], check=True, capture_output=True)
+        url_handler.setup(_resolve_python(), SCRIPT_PATH)
         return True
     except Exception:
         return False
