@@ -142,6 +142,7 @@ def main() -> None:
     parser.add_argument("--unschedule", action="store_true", help="Remove LaunchAgent")
     parser.add_argument("--schedule-status", action="store_true", help="Show schedule status")
     parser.add_argument("--history", action="store_true", help="Show last 10 run history entries")
+    parser.add_argument("--review", action="store_true", help="Open browser review UI for last scan results")
     args = parser.parse_args()
 
     if args.schedule:
@@ -161,6 +162,22 @@ def main() -> None:
     if args.history:
         console.print(history.format_history())
         return
+
+    if args.review:
+        import reviewer
+        if not RESULTS_PATH.exists():
+            console.print("[red]No scan data found. Run MacMaid first (--unattended or interactive).[/red]")
+            sys.exit(1)
+        results = json.loads(RESULTS_PATH.read_text())
+        large = next(
+            (r for r in results if r.get("category") == "Large & Old Files" and r.get("items")),
+            None,
+        )
+        if not large:
+            console.print("[yellow]No large files found in last scan.[/yellow]")
+            sys.exit(0)
+        reviewer.start(large["items"])
+        sys.exit(0)
 
     reporter.print_banner()
 
