@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import sys
 from datetime import date
+from pathlib import Path
 
 import questionary
 from rich.console import Console
@@ -20,6 +22,13 @@ from modules import (
 )
 
 console = Console()
+
+RESULTS_PATH = Path.home() / "Library" / "Logs" / "mac-maid-last-results.json"
+
+
+def save_results(results: list[dict]) -> None:
+    RESULTS_PATH.write_text(json.dumps(results))
+
 
 MODULES = {
     "caches": caches.scan,
