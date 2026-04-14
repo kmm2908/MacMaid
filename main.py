@@ -123,9 +123,16 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
         clean_result = cleaner_mod.clean_items(items_to_clean, permanent=permanent)
     report_text = reporter.print_unattended_report(results, clean_result, dry_run=dry_run)
 
+    save_results(results)
     history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
+        has_large_files = any(
+            r.get("category") == "Large & Old Files" and r.get("items")
+            for r in results
+        )
+        if has_large_files:
+            report_text += "\n\n---\nReview large files in your browser: macmaid://review"
         prefix = "[DRY RUN] " if dry_run else ""
         subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
         emailer.send_report(subject, report_text, to_email)
