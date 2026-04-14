@@ -37,8 +37,10 @@ def test_register_bundle_calls_lsregister(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
     url_handler._register_bundle()
-    assert any(url_handler._LSREGISTER in str(c) for c in calls)
-    assert any(str(url_handler.BUNDLE_DIR) in str(c) for c in calls)
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[0] == url_handler._LSREGISTER
+    assert str(url_handler.BUNDLE_DIR) in cmd
 
 
 def test_setup_creates_bundle_and_registers(tmp_path, monkeypatch):
