@@ -20,7 +20,7 @@ def scan() -> dict:
                 try:
                     stat = os.stat(fp)
                     age = now - stat.st_mtime
-                    if stat.st_size >= threshold_bytes or age >= old_file_seconds:
+                    if stat.st_size >= threshold_bytes or (age >= old_file_seconds and stat.st_size >= 1024 * 1024):
                         last_opened = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
                         items.append(make_item(
                             fp, stat.st_size, f,

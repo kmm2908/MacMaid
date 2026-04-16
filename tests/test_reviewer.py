@@ -19,7 +19,7 @@ SAMPLE_ITEMS = [
 
 
 def test_get_files_returns_items():
-    app = reviewer._make_app(SAMPLE_ITEMS)
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS})
     client = app.test_client()
     resp = client.get("/api/files")
     assert resp.status_code == 200
@@ -27,7 +27,7 @@ def test_get_files_returns_items():
 
 
 def test_index_returns_html():
-    app = reviewer._make_app(SAMPLE_ITEMS)
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS})
     client = app.test_client()
     resp = client.get("/")
     assert resp.status_code == 200
@@ -39,12 +39,14 @@ from unittest.mock import patch, MagicMock
 import cleaner
 
 
-def test_delete_calls_clean_items_with_matching_paths():
-    app = reviewer._make_app(SAMPLE_ITEMS)
+def test_delete_calls_clean_items_with_matching_paths(tmp_path):
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS})
     client = app.test_client()
 
-    fake_result = cleaner.CleanResult(moved=1, errors=0, bytes_freed=2_000_000_000)
-    with patch("reviewer.cleaner_mod.clean_items", return_value=fake_result) as mock_clean:
+    fake_result = cleaner.CleanResult(moved=1, errors=0, bytes_freed=2_000_000_000,
+                                      moved_paths=["/Users/fred/Downloads/big.dmg"])
+    with patch("reviewer.cleaner_mod.clean_items", return_value=fake_result) as mock_clean, \
+         patch("reviewer.RESULTS_PATH", tmp_path / "results.json"):
         resp = client.post(
             "/api/delete",
             data=json.dumps({"paths": ["/Users/fred/Downloads/big.dmg"]}),
@@ -62,10 +64,10 @@ def test_delete_calls_clean_items_with_matching_paths():
 
 
 def test_reveal_calls_open_r():
-    app = reviewer._make_app(SAMPLE_ITEMS)
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS})
     client = app.test_client()
 
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, patch("os.path.exists", return_value=True):
         resp = client.post(
             "/api/reveal",
             data=json.dumps({"path": "/Users/fred/Downloads/big.dmg"}),
@@ -77,12 +79,13 @@ def test_reveal_calls_open_r():
     assert cmd == ["open", "-R", "/Users/fred/Downloads/big.dmg"]
 
 
-def test_delete_unknown_path_returns_zero_moved():
-    app = reviewer._make_app(SAMPLE_ITEMS)
+def test_delete_unknown_path_returns_zero_moved(tmp_path):
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS})
     client = app.test_client()
 
     fake_result = cleaner.CleanResult(moved=0, errors=0, bytes_freed=0)
-    with patch("reviewer.cleaner_mod.clean_items", return_value=fake_result):
+    with patch("reviewer.cleaner_mod.clean_items", return_value=fake_result), \
+         patch("reviewer.RESULTS_PATH", tmp_path / "results.json"):
         resp = client.post(
             "/api/delete",
             data=json.dumps({"paths": ["/does/not/exist.dmg"]}),

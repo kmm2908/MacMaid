@@ -45,12 +45,12 @@ def test_review_calls_reviewer_start_with_large_files_items(tmp_path, monkeypatc
     monkeypatch.setattr(sys, "argv", ["main.py", "--review"])
 
     started = []
-    with patch.dict("sys.modules", {"reviewer": MagicMock(start=lambda i: started.append(i))}):
+    with patch("main.reviewer.start", side_effect=lambda i: started.append(i)):
         with pytest.raises(SystemExit):
             main.main()
 
     assert len(started) == 1
-    assert started[0] == items
+    assert started[0] == {"Large & Old Files": items}
 
 
 def test_review_exits_if_large_files_empty(tmp_path, monkeypatch):
@@ -90,11 +90,12 @@ def test_unattended_email_includes_review_link_when_large_files_present(tmp_path
     sent_bodies = []
     with patch("main.reporter.print_unattended_report", return_value="report text"), \
          patch("main.history.record"), \
-         patch("main.emailer.send_report", side_effect=lambda s, b, t: sent_bodies.append(b)):
+         patch("main._start_review_server"), \
+         patch("main.emailer.send_report", side_effect=lambda s, b, t, **kw: sent_bodies.append(b)):
         main.unattended_mode(results, False, "test@example.com", no_email=False)
 
     assert len(sent_bodies) == 1
-    assert "macmaid://review" in sent_bodies[0]
+    assert f"localhost:{main.reviewer.REVIEW_PORT}" in sent_bodies[0]
 
 
 def test_unattended_email_no_review_link_when_no_large_files(tmp_path, monkeypatch):
@@ -104,11 +105,11 @@ def test_unattended_email_no_review_link_when_no_large_files(tmp_path, monkeypat
     sent_bodies = []
     with patch("main.reporter.print_unattended_report", return_value="report text"), \
          patch("main.history.record"), \
-         patch("main.emailer.send_report", side_effect=lambda s, b, t: sent_bodies.append(b)):
+         patch("main.emailer.send_report", side_effect=lambda s, b, t, **kw: sent_bodies.append(b)):
         main.unattended_mode(results, False, "test@example.com", no_email=False)
 
     assert len(sent_bodies) == 1
-    assert "macmaid://review" not in sent_bodies[0]
+    assert "localhost" not in sent_bodies[0]
 
 
 def test_unattended_dry_run_does_not_save_results(tmp_path, monkeypatch):

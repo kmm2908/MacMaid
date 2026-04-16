@@ -24,7 +24,7 @@ def test_finds_large_file(tmp_path):
 
 def test_finds_old_file(tmp_path):
     old = tmp_path / "old.dmg"
-    old.write_bytes(b"x" * 1024)
+    old.write_bytes(b"x" * (1024 * 1024))  # 1 MB minimum for age-only inclusion
     old_time = time.time() - (200 * 86400)
     os.utime(str(old), (old_time, old_time))
 

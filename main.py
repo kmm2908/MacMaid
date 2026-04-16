@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import subprocess
 import sys
+import time
+import urllib.request
 from datetime import date
 from pathlib import Path
 
@@ -14,6 +17,7 @@ import cleaner as cleaner_mod
 import emailer
 import scheduler
 import history
+import reviewer
 
 from modules import (
     caches, logs, trash, large_files, duplicates,
@@ -110,6 +114,42 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
     return total_result
 
 
+def _start_review_server() -> None:
+    """Stop any running review server, launch a fresh one, and wait until it's ready."""
+    try:
+        urllib.request.urlopen(
+            f"http://localhost:{reviewer.REVIEW_PORT}/api/quit", data=b"{}", timeout=1
+        )
+        time.sleep(0.5)
+    except Exception:
+        pass
+    # Force-kill anything still holding the port
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{reviewer.REVIEW_PORT}"],
+            capture_output=True, text=True,
+        )
+        for pid in result.stdout.split():
+            subprocess.run(["kill", "-9", pid], capture_output=True)
+        if result.stdout.strip():
+            time.sleep(0.5)
+    except Exception:
+        pass
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--serve"],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    # Wait up to 10s for the server to be ready before emailing the link
+    for _ in range(20):
+        try:
+            urllib.request.urlopen(f"http://localhost:{reviewer.REVIEW_PORT}/", timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.5)
+
+
 def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_email: bool, dry_run: bool = False) -> None:
     items_to_clean = [
         item
@@ -128,15 +168,37 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
     history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
-        has_large_files = any(
-            r.get("category") == "Large & Old Files" and r.get("items")
-            for r in results
-        )
-        if has_large_files:
-            report_text += "\n\n---\nReview large files in your browser: macmaid://review"
+        has_reviewable = bool(_load_review_categories(results))
+        html_body = None
+        if has_reviewable:
+            _start_review_server()
+            review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
+            report_text += f"\n\n---\nReview large files: {review_url}"
+            escaped = report_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html_body = (
+                f'<pre style="font-family:monospace;white-space:pre-wrap">{escaped}</pre>'
+                f'<hr style="margin:20px 0">'
+                f'<p><a href="{review_url}" style="display:inline-block;padding:12px 24px;background:#2980b9;color:#ffffff;'
+                f'text-decoration:none;border-radius:6px;font-family:sans-serif;font-size:15px;font-weight:bold">'
+                f'&#x1f9f9; Review Large Files &rarr;</a></p>'
+                f'<p style="color:#999;font-size:12px;font-family:sans-serif">Opens on this Mac while MacMaid review server is running.</p>'
+            )
         prefix = "[DRY RUN] " if dry_run else ""
         subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
-        emailer.send_report(subject, report_text, to_email)
+        emailer.send_report(subject, report_text, to_email, html_body=html_body)
+
+
+_REVIEW_CATEGORIES = ("Large & Old Files", "Duplicates")
+
+
+def _load_review_categories(results: list[dict]) -> dict[str, list[dict]]:
+    """Extract reviewable categories (with items) from scan results."""
+    cats = {}
+    for name in _REVIEW_CATEGORIES:
+        r = next((r for r in results if r.get("category") == name and r.get("items")), None)
+        if r:
+            cats[name] = r["items"]
+    return cats
 
 
 def main() -> None:
@@ -151,6 +213,7 @@ def main() -> None:
     parser.add_argument("--schedule-status", action="store_true", help="Show schedule status")
     parser.add_argument("--history", action="store_true", help="Show last 10 run history entries")
     parser.add_argument("--review", action="store_true", help="Open browser review UI for last scan results")
+    parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.schedule:
@@ -171,20 +234,26 @@ def main() -> None:
         console.print(history.format_history())
         return
 
+    if args.serve:
+        if not RESULTS_PATH.exists():
+            sys.exit(1)
+        results = json.loads(RESULTS_PATH.read_text())
+        cats = _load_review_categories(results)
+        if not cats:
+            sys.exit(0)
+        reviewer.serve(cats)
+        sys.exit(0)
+
     if args.review:
-        import reviewer
         if not RESULTS_PATH.exists():
             console.print("[red]No scan data found. Run MacMaid with --unattended first.[/red]")
             sys.exit(1)
         results = json.loads(RESULTS_PATH.read_text())
-        large = next(
-            (r for r in results if r.get("category") == "Large & Old Files" and r.get("items")),
-            None,
-        )
-        if not large:
+        cats = _load_review_categories(results)
+        if not cats:
             console.print("[yellow]No large files found in last scan.[/yellow]")
             sys.exit(0)
-        reviewer.start(large["items"])
+        reviewer.start(cats)
         sys.exit(0)
 
     reporter.print_banner()
