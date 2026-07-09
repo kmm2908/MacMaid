@@ -8,3 +8,5 @@ venv/
 dist/
 *.log
 .worktrees/
+.playwright-mcp/
+.claude/settings.local.json

@@ -57,14 +57,12 @@ Register new modules in the `MODULES` dict at the top of `main.py`.
 ```
 (pytest shebang resolves to `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`)
 
-## Config Keys (config.json)
-| Key | Default | Used by |
-|-----|---------|---------|
-| `large_file_threshold_mb` | 500 | large_files |
-| `old_file_days` | 180 | large_files |
-| `log_retention_days` | 7 | logs |
-| `scan_paths` | Downloads/Desktop/Documents | large_files, duplicates |
-| `dev_scan_paths` | `~/`, `/Volumes/Ext Data` | dev_junk |
-| `email_report_to` | kmmsubs@gmail.com | main (unattended) |
-| `permanent_delete` | false | main |
-| `modules` | all true | main |
+
+## Autonomy
+Exhaust every automation path (API, CLI, MCP, scripted browser) before handing a task back. **Full rule:** `~/.claude/rules/common/autonomy.md`.
+
+
+
+## Subagent Offloading
+
+Dispatch to a subagent (not inline) when any trigger fires: reading >3 files for one question, open-ended search, multi-step research, any task >2 min, batch operations, or verifying external-system claims. Use `run_in_background: true` for long-running tasks. **Sonnet is the floor for all subagents — never Haiku.** **Full rule + exceptions:** `~/.claude/rules/common/subagent-offloading.md`.
