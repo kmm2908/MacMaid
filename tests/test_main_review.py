@@ -71,8 +71,7 @@ def test_unattended_mode_saves_results(tmp_path, monkeypatch):
     results = [{"category": "caches", "risk": "safe", "items": [], "total_size_bytes": 0,
                 "suggestion": "", "action": "trash"}]
     with patch("main.reporter.print_unattended_report", return_value="report"), \
-         patch("main.history.record"), \
-         patch("main.emailer.send_report"):
+         patch("main.history.record"):
         main.unattended_mode(results, False, "", no_email=True)
 
     assert (tmp_path / "results.json").exists()
@@ -87,29 +86,30 @@ def test_unattended_email_includes_review_link_when_large_files_present(tmp_path
         {"category": "Large & Old Files", "risk": "review", "items": items,
          "total_size_bytes": 1_000_000_000, "suggestion": "", "action": "trash"},
     ]
-    sent_bodies = []
+    calls = []
     with patch("main.reporter.print_unattended_report", return_value="report text"), \
          patch("main.history.record"), \
          patch("main._start_review_server"), \
-         patch("main.emailer.send_report", side_effect=lambda s, b, t, **kw: sent_bodies.append(b)):
+         patch("main.notify.notify", side_effect=lambda **kw: calls.append(kw) or True):
         main.unattended_mode(results, False, "test@example.com", no_email=False)
 
-    assert len(sent_bodies) == 1
-    assert f"localhost:{main.reviewer.REVIEW_PORT}" in sent_bodies[0]
+    assert len(calls) == 1
+    assert f"localhost:{main.reviewer.REVIEW_PORT}" in calls[0]["link"]
+    assert calls[0]["do_this"]
+    assert calls[0]["to"] == ["test@example.com"]
 
 
-def test_unattended_email_no_review_link_when_no_large_files(tmp_path, monkeypatch):
+def test_unattended_no_email_when_nothing_reviewable(tmp_path, monkeypatch):
+    """No reviewable items -> notify.notify() must not be called (action-only gate)."""
     monkeypatch.setattr(main, "RESULTS_PATH", tmp_path / "results.json")
     results = [{"category": "caches", "risk": "safe", "items": [], "total_size_bytes": 0,
                 "suggestion": "", "action": "trash"}]
-    sent_bodies = []
     with patch("main.reporter.print_unattended_report", return_value="report text"), \
          patch("main.history.record"), \
-         patch("main.emailer.send_report", side_effect=lambda s, b, t, **kw: sent_bodies.append(b)):
+         patch("main.notify.notify") as mock_notify:
         main.unattended_mode(results, False, "test@example.com", no_email=False)
 
-    assert len(sent_bodies) == 1
-    assert "localhost" not in sent_bodies[0]
+    mock_notify.assert_not_called()
 
 
 def test_unattended_dry_run_does_not_save_results(tmp_path, monkeypatch):
@@ -117,8 +117,7 @@ def test_unattended_dry_run_does_not_save_results(tmp_path, monkeypatch):
     results = [{"category": "caches", "risk": "safe", "items": [], "total_size_bytes": 0,
                 "suggestion": "", "action": "trash"}]
     with patch("main.reporter.print_unattended_report", return_value="report"), \
-         patch("main.history.record"), \
-         patch("main.emailer.send_report"):
+         patch("main.history.record"):
         main.unattended_mode(results, False, "", no_email=True, dry_run=True)
 
     assert not (tmp_path / "results.json").exists()
