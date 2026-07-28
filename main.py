@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from datetime import date
 from pathlib import Path
 
 import questionary
@@ -13,12 +14,10 @@ from rich.console import Console
 import config as cfg
 import reporter
 import cleaner as cleaner_mod
+import emailer
 import scheduler
 import history
 import reviewer
-
-sys.path.insert(0, str(Path.home() / ".claude" / "utils"))
-import notify  # noqa: E402  (~/.claude/utils/notify.py — shared action-only email gate)
 
 from modules import (
     caches, logs, trash, large_files, duplicates,
@@ -169,21 +168,24 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
     history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
-        cats = _load_review_categories(results)
-        if cats:
+        has_reviewable = bool(_load_review_categories(results))
+        html_body = None
+        if has_reviewable:
             _start_review_server()
-            review_url = f"http://localhost:{reviewer.REVIEW_PORT}/"
-            n_items = sum(len(items) for items in cats.values())
-            prefix = "[DRY RUN] " if dry_run else ""
-            notify.notify(
-                headline=f"{prefix}{n_items} items to review",
-                do_this="Open the MacMaid review page and confirm/undo the flagged items",
-                source="macmaid",
-                link=review_url,
-                detail=report_text,
-                severity="action",
-                to=[to_email],
+            review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
+            report_text += f"\n\n---\nReview large files: {review_url}"
+            escaped = report_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html_body = (
+                f'<pre style="font-family:monospace;white-space:pre-wrap">{escaped}</pre>'
+                f'<hr style="margin:20px 0">'
+                f'<p><a href="{review_url}" style="display:inline-block;padding:12px 24px;background:#2980b9;color:#ffffff;'
+                f'text-decoration:none;border-radius:6px;font-family:sans-serif;font-size:15px;font-weight:bold">'
+                f'&#x1f9f9; Review Large Files &rarr;</a></p>'
+                f'<p style="color:#999;font-size:12px;font-family:sans-serif">Opens on this Mac while MacMaid review server is running.</p>'
             )
+        prefix = "[DRY RUN] " if dry_run else ""
+        subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
+        emailer.send_report(subject, report_text, to_email, html_body=html_body)
 
 
 _REVIEW_CATEGORIES = ("Large & Old Files", "Duplicates")
