@@ -1,5 +1,5 @@
 import os
-from modules.base import make_result, make_item
+from modules.base import make_result, make_item, is_removable
 
 USER_CACHE_DIR = os.path.expanduser("~/Library/Caches")
 SYS_CACHE_DIR = "/Library/Caches"
@@ -27,6 +27,8 @@ def _scan_cache_dir(base: str) -> list[dict]:
     try:
         for name in os.listdir(base):
             full = os.path.join(base, name)
+            if not is_removable(full):
+                continue  # root-owned /Library/Caches entries fail on every run
             size = _dir_size(full) if os.path.isdir(full) else 0
             try:
                 size = size or os.path.getsize(full)

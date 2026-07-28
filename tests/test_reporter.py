@@ -18,3 +18,20 @@ def test_build_summary_text():
     assert "5" in text
     assert "50" in text  # 50 MB
     assert "error" in text.lower()
+
+def test_build_summary_text_points_at_the_error_log_when_errors_occur():
+    from cleaner import CleanResult
+    text = build_summary_text(CleanResult(moved=1, errors=3))
+    assert "mac-maid-error.log" in text
+
+def test_build_summary_text_reports_skipped_duplicates():
+    from cleaner import CleanResult
+    text = build_summary_text(CleanResult(moved=2, skipped=7))
+    assert "7" in text
+    assert "skip" in text.lower()
+
+def test_build_summary_text_silent_when_nothing_skipped_or_failed():
+    from cleaner import CleanResult
+    text = build_summary_text(CleanResult(moved=2, bytes_freed=10))
+    assert "skip" not in text.lower()
+    assert "error" not in text.lower()

@@ -1,5 +1,5 @@
 import os
-from modules.base import make_result, make_item
+from modules.base import make_result, make_item, TRASH_DIR_NAMES, is_in_trash, is_removable
 import config as cfg
 
 DEV_SCAN_PATHS = [os.path.expanduser(p) for p in (cfg.get("dev_scan_paths") or ["~/"])]
@@ -23,18 +23,26 @@ def _dir_size(path: str) -> int:
 
 
 def _scan_path(base: str, items: list) -> None:
-    if not os.path.isdir(base):
+    if not os.path.isdir(base) or is_in_trash(base):
         return
     for dirpath, dirnames, filenames in os.walk(base, topdown=True):
+        # Never descend into a trash folder — its contents are already deleted.
+        for d in list(dirnames):
+            if d in TRASH_DIR_NAMES:
+                dirnames.remove(d)
         for d in list(dirnames):
             if d in TARGET_DIRS:
                 full = os.path.join(dirpath, d)
+                dirnames.remove(d)  # don't recurse into it
+                if not is_removable(full):
+                    continue
                 size = _dir_size(full)
                 items.append(make_item(full, size, f"{d} ({os.path.basename(dirpath)})"))
-                dirnames.remove(d)  # don't recurse into it
         for f in filenames:
             if os.path.splitext(f)[1] in TARGET_EXTS:
                 fp = os.path.join(dirpath, f)
+                if not is_removable(fp):
+                    continue
                 try:
                     items.append(make_item(fp, os.path.getsize(fp), f))
                 except OSError:

@@ -30,8 +30,29 @@ console = Console()
 RESULTS_PATH = Path.home() / "Library" / "Logs" / "mac-maid-last-results.json"
 
 
+ERROR_LOG_PATH = Path.home() / "Library" / "Logs" / "mac-maid-error.log"
+
+
 def save_results(results: list[dict]) -> None:
     RESULTS_PATH.write_text(json.dumps(results))
+
+
+def log_errors(clean_result) -> None:
+    """Append per-path failures so a rising error count can be diagnosed.
+
+    error_paths was collected and discarded, which is why 602 nightly failures
+    went unnoticed with an empty error log.
+    """
+    if not clean_result.error_paths:
+        return
+    stamp = date.today().isoformat()
+    try:
+        ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(ERROR_LOG_PATH, "a") as f:
+            for path, err in clean_result.error_paths:
+                f.write(f"{stamp}\t{path}\t{err}\n")
+    except OSError:
+        pass  # logging must never break the run
 
 
 MODULES = {
@@ -75,6 +96,20 @@ def run_scan(enabled_modules: list[str]) -> list[dict]:
     return results
 
 
+def _with_action(result: dict, items: list[dict] | None = None) -> list[dict]:
+    """Tag each item with its module's action so the cleaner can dispatch on it.
+
+    Without this the Trash module's "empty-trash" action is lost when items are
+    flattened, and the cleaner falls back to send2trash(~/.Trash).
+    """
+    return [{**item, "action": result["action"]}
+            for item in (result["items"] if items is None else items)]
+
+
+def _trash_retention_days() -> int:
+    return cfg.get("trash_retention_days") or cleaner_mod.DEFAULT_TRASH_RETENTION_DAYS
+
+
 def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanResult:
     total_result = cleaner_mod.CleanResult()
 
@@ -88,7 +123,8 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 f"Clean {r['category']}? ({size})"
             ).ask()
             if confirm:
-                cr = cleaner_mod.clean_items(r["items"], permanent=permanent)
+                cr = cleaner_mod.clean_items(_with_action(r), permanent=permanent,
+                                             trash_retention_days=_trash_retention_days())
                 total_result.moved += cr.moved
                 total_result.errors += cr.errors
                 total_result.bytes_freed += cr.bytes_freed
@@ -106,7 +142,8 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 if keep:
                     to_clean.append(item)
             if to_clean:
-                cr = cleaner_mod.clean_items(to_clean, permanent=permanent)
+                cr = cleaner_mod.clean_items(_with_action(r, to_clean), permanent=permanent,
+                                             trash_retention_days=_trash_retention_days())
                 total_result.moved += cr.moved
                 total_result.errors += cr.errors
                 total_result.bytes_freed += cr.bytes_freed
@@ -155,12 +192,16 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
         item
         for r in results
         if r["risk"] == "safe" and r["action"] != "none"
-        for item in r["items"]
+        for item in _with_action(r)
     ]
     if dry_run:
         clean_result = cleaner_mod.CleanResult()
     else:
-        clean_result = cleaner_mod.clean_items(items_to_clean, permanent=permanent)
+        clean_result = cleaner_mod.clean_items(
+            items_to_clean, permanent=permanent,
+            trash_retention_days=_trash_retention_days(),
+        )
+        log_errors(clean_result)
     report_text = reporter.print_unattended_report(results, clean_result, dry_run=dry_run)
 
     if not dry_run:

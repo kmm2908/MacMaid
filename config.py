@@ -7,6 +7,7 @@ DEFAULTS = {
     "large_file_threshold_mb": 500,
     "old_file_days": 180,
     "log_retention_days": 7,
+    "trash_retention_days": 7,
     "scan_paths": ["~/Downloads", "~/Desktop", "~/Documents"],
     "dev_scan_paths": ["~/", "/Volumes/Ext Data"],
     "email_report_to": "kmmsubs@gmail.com",

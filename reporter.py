@@ -87,8 +87,11 @@ def print_item_detail(item: dict) -> None:
 def build_summary_text(result: CleanResult) -> str:
     freed = format_size(result.bytes_freed)
     lines = [f"Cleaned: {result.moved} items, {freed} freed"]
+    if result.skipped:
+        lines.append(f"Skipped: {result.skipped} duplicate or already-covered path(s)")
     if result.errors:
-        lines.append(f"Errors: {result.errors} item(s) could not be removed")
+        lines.append(f"Errors: {result.errors} item(s) could not be removed "
+                     f"(details in ~/Library/Logs/mac-maid-error.log)")
     if result.moved > 0:
         lines.append("Files moved to Trash — review before emptying.")
     return "\n".join(lines)

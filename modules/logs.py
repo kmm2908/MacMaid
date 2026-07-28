@@ -1,6 +1,6 @@
 import os
 import time
-from modules.base import make_result, make_item
+from modules.base import make_result, make_item, is_removable
 import config as cfg
 
 USER_LOG_DIR = os.path.expanduser("~/Library/Logs")
@@ -16,7 +16,7 @@ def _find_old_logs(base: str, cutoff: float) -> list[dict]:
             fp = os.path.join(dirpath, f)
             try:
                 stat = os.stat(fp)
-                if stat.st_mtime < cutoff:
+                if stat.st_mtime < cutoff and is_removable(fp):
                     items.append(make_item(fp, stat.st_size, f))
             except OSError:
                 pass
