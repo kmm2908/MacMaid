@@ -16,7 +16,7 @@ history.py       — appends JSON run records to ~/Library/Logs/mac-maid-history
 reviewer.py      — Flask local server + embedded HTML/JS browser review UI; start(categories) is the entry point; categories is dict[str, list[dict]] keyed by category name
 url_handler.py   — creates ~/.local/share/MacMaid.app bundle and registers macmaid:// URL scheme via lsregister
 modules/         — one file per scan category, all expose scan() -> dict
-tests/           — one test file per module; run with pytest (configured in pyproject.toml)
+tests/           — one test file per module; run with pytest (configured in pyproject.toml). conftest.py isolates the git environment for the dev_junk tests only
 ```
 
 ## Module Contract
