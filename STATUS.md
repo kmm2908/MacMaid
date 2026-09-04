@@ -1,7 +1,18 @@
 # MacMaid — Project Status
-_Last updated: 2026-09-01_
+_Last updated: 2026-09-04_
 
 ---
+
+## Where It Lives — read this before moving the folder
+Moved to `CC Dev/_running/MacMaid` on 2026-09-04: development is finished, the nightly
+LaunchAgent is what keeps it alive. Unlike CleanUp, **nothing runs from a copy** — the
+`com.macmaid.nightly` plist and the `macmaid://` handler at `~/.local/share/MacMaid.app`
+both name this directory, so moving the folder breaks the 02:00 run and the review link
+until `main.py --schedule HH:MM` is re-run from the new location. `install()` calls
+`launchctl load`, which errors when the label is already loaded — `--unschedule` (or
+`launchctl unload`) first, or the reinstall silently returns False and the URL handler is
+never rewritten. `trello sync`/`add`/`promote`/`open` cannot see `_running/` projects
+(Trello board card `zT2GhMnv`), so the `ToDo.md` mirror here will go stale.
 
 ## What This Is
 A macOS maintenance CLI: scans for junk across 14 categories, reports findings in a Rich terminal UI (or a browser review UI), and cleans up safely (send2trash by default). Supports interactive and unattended/scheduled modes. See `CLAUDE.md` for architecture and the module contract.
