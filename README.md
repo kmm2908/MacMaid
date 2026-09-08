@@ -95,6 +95,7 @@ Copy or create `config.json` in the project root. All keys are optional — defa
   "log_retention_days": 7,
   "scan_paths": ["~/Downloads", "~/Desktop", "~/Documents"],
   "dev_scan_paths": ["~/", "/Volumes/Ext Data"],
+  "dev_junk_dormant_days": 180,
   "email_report_to": "you@example.com",
   "permanent_delete": false,
   "modules": {
@@ -115,6 +116,11 @@ Copy or create `config.json` in the project root. All keys are optional — defa
 ```
 
 Set any module to `false` to skip it.
+
+`dev_junk_dormant_days` is how long a project must have gone without a commit before its
+`node_modules` counts as junk. A project is also spared while anything local says it is in
+use — the dependencies were installed recently, a tracked file beside them was edited, or
+the repository has uncommitted work. Lower it to reclaim more; values below 1 are ignored.
 
 ## Thermal module (sudo required)
 

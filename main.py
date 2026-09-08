@@ -128,6 +128,8 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 total_result.moved += cr.moved
                 total_result.errors += cr.errors
                 total_result.bytes_freed += cr.bytes_freed
+                total_result.skipped += cr.skipped
+                total_result.changed_paths.extend(cr.changed_paths)
 
         elif r["risk"] == "review":
             show = questionary.confirm(
@@ -147,6 +149,8 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 total_result.moved += cr.moved
                 total_result.errors += cr.errors
                 total_result.bytes_freed += cr.bytes_freed
+                total_result.skipped += cr.skipped
+                total_result.changed_paths.extend(cr.changed_paths)
 
     return total_result
 

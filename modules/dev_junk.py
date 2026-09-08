@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import subprocess
@@ -166,6 +167,148 @@ def _tracked_names(parent: str, cache: dict) -> frozenset:
     return cache[key]
 
 
+# A tracked manifest proves node_modules can be REINSTALLED, not that it should
+# be deleted. Liveness is the missing half, and the age of the newest commit is
+# the signal that holds: measured 2026-09-08, every node_modules the sweep
+# offered belonged to a repository committed to that same day, while tracked
+# files sitting in those same directories were up to 152 days old. Source mtime
+# says which corner of a project is busy; the repository says whether anyone is
+# still there at all.
+DORMANT_DAYS_DEFAULT = 180
+# Neither is ever a resolved path, so neither can collide with a cache key.
+_AGE_PREFIX = "age:"
+_DIRTY_PREFIX = "dirty:"
+
+
+def _dormant_days() -> float:
+    """Read at call time — a module-level constant would freeze the config.
+
+    Anything that would switch the protection off (0, a negative, a bool, a
+    non-number, an infinity) is refused in favour of the default: a window of
+    zero makes every project dormant, which is the incident this rule exists
+    to stop, and a malformed value would otherwise raise and take the whole
+    module down mid-scan.
+    """
+    v = cfg.get("dev_junk_dormant_days")
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return float(DORMANT_DAYS_DEFAULT)
+    if not math.isfinite(v) or v < 1:
+        return float(DORMANT_DAYS_DEFAULT)
+    return float(v)
+
+
+def _git_answer(parent: str, args: list[str], cache: dict,
+                ordinary: bytes = b"") -> bytes | None:
+    """One read-only git question, charged to the scan-wide budget.
+
+    None means git did not answer, which every caller treats as a decline.
+    `ordinary` names a stderr fragment that is a legitimate answer rather than
+    a malfunction, so it is not counted into the incomplete-scan tally.
+    """
+    remaining = GIT_SCAN_BUDGET_SECONDS - cache.get(_SPENT_KEY, 0.0)
+    if remaining <= 0:
+        cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1
+        return None
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_STRIP}
+    env.update(LC_ALL="C", LANG="C", LANGUAGE="")
+    started = time.monotonic()
+    try:
+        r = subprocess.run(
+            ["git", "-C", parent, *args],
+            capture_output=True, env=env, check=False,
+            timeout=min(GIT_TIMEOUT_SECONDS, remaining),
+        )
+        if r.returncode == 0:
+            return r.stdout
+        if not ordinary or ordinary not in r.stderr:
+            cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1
+    except (OSError, ValueError, subprocess.SubprocessError):
+        cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1
+    finally:
+        cache[_SPENT_KEY] = cache.get(_SPENT_KEY, 0.0) + (time.monotonic() - started)
+    return None
+
+
+def _head_age_days(parent: str, cache: dict) -> float | None:
+    """Days since the newest commit anywhere in the repository holding `parent`.
+
+    `--all` rather than HEAD: a checkout parked on a stale branch is not an
+    abandoned repository, and reading HEAD alone would call it one.
+
+    None whenever git cannot answer — an unborn HEAD, a hang, a missing binary,
+    an exhausted budget — which is a decline, the same fail-closed direction as
+    the rest of this module. Only ever called once a tracked manifest has been
+    found, so the repository is already known to exist and the call is cheap.
+    """
+    key = _AGE_PREFIX + os.path.realpath(parent)
+    if key in cache:
+        cached: float | None = cache[key]
+        return cached
+    age: float | None = None
+    out = _git_answer(
+        parent, ["log", "--all", "-1", "--format=%ct"], cache,
+        ordinary=b"does not have any commits",
+    )
+    if out is not None and out.strip():
+        try:
+            age = (time.time() - int(out.strip())) / 86400.0
+        except ValueError:
+            age = None
+    cache[key] = age
+    return age
+
+
+def _has_uncommitted_changes(parent: str, cache: dict) -> bool | None:
+    """Whether the repository holding `parent` has tracked work in flight.
+
+    Untracked files are excluded on purpose: node_modules itself is one, and
+    scanning for them on a large checkout is the slow half of `git status`.
+    None means git could not answer, which callers treat as activity.
+    """
+    key = _DIRTY_PREFIX + os.path.realpath(parent)
+    if key in cache:
+        cached: bool | None = cache[key]
+        return cached
+    out = _git_answer(
+        parent, ["--no-optional-locks", "status", "--porcelain", "-uno"], cache,
+    )
+    dirty = None if out is None else bool(out.strip())
+    cache[key] = dirty
+    return dirty
+
+
+def _worked_on_recently(parent: str, window: float, cache: dict) -> bool:
+    """Local activity that a commit date cannot see.
+
+    A commit date says when the project last moved forward; it says nothing
+    about a fresh clone of an old repository that was installed this morning,
+    or a checkout being edited without commits. So: every immediate entry of
+    the project directory — the artefact itself, the manifest, and anything
+    untracked or gitignored beside them, which `git status -uno` does not
+    report — plus the directory's own mtime, plus tracked work in flight.
+
+    `.git` is excluded deliberately: its mtime moves when git takes a lock, so
+    this module's own queries would otherwise make every repository look busy.
+
+    Not recursive, and that is the documented limit — work buried in a
+    subdirectory shows up as a tracked modification or a commit, or not at all.
+    Fail closed: an unreadable mtime or an unanswerable git counts as activity.
+    """
+    cutoff = time.time() - window * 86400
+    try:
+        paths = [parent] + [e.path for e in os.scandir(parent)
+                            if os.path.basename(e.path) != ".git"]
+    except OSError:
+        return True
+    for path in paths:
+        try:
+            if os.path.getmtime(path) > cutoff:
+                return True
+        except OSError:
+            return True
+    return _has_uncommitted_changes(parent, cache) is not False
+
+
 # Only a RECOGNISED interpreter tag is stripped. Splitting on the first dot
 # would map `pkg.mod.cpython-312.pyc` to `pkg.py`, letting a tracked `pkg.py`
 # authorise deletion of bytecode belonging to a `pkg.mod.py` that no longer
@@ -210,7 +353,17 @@ def _is_project_junk(name: str, parent: str, cache: dict) -> bool:
     if name == "node_modules":
         # The manifest itself must supply the git evidence: a tracked README
         # beside an installed, untracked package.json is not a project.
-        return "package.json" in tracked
+        if "package.json" not in tracked:
+            return False
+        # ...and the project must be one nobody is working on. Taking a
+        # dependency tree out of a live checkout costs a reinstall and a test
+        # run that reads as a code regression, and no error is raised anywhere:
+        # the cleaner reports success and so does the broken caller.
+        window = _dormant_days()
+        age = _head_age_days(parent, cache)
+        if age is None or age < window:
+            return False
+        return not _worked_on_recently(parent, window, cache)
     if name == "__pycache__" or name.endswith(".pyc"):
         return _bytecode_is_regenerable(name, parent, tracked)
     # .mypy_cache / .pytest_cache are tool caches, not compiled artefacts:
@@ -233,10 +386,24 @@ def _scan_path(base: str, items: list, cache: dict | None = None) -> None:
                 dirnames.remove(d)  # don't recurse into it
                 if not is_removable(full):
                     continue
+                # Read BEFORE the decision, never after. _dir_size() walks the
+                # whole tree, so an install finishing during that walk would
+                # otherwise be recorded as the very state the cleaner checks
+                # against — and the race would close itself invisibly.
+                try:
+                    seen_at = os.path.getmtime(full)
+                except OSError:
+                    continue
                 if not _is_project_junk(d, dirpath, git_cache):
                     continue
                 size = _dir_size(full)
-                items.append(make_item(full, size, f"{d} ({os.path.basename(dirpath)})"))
+                # Only node_modules: a re-check that refuses a directory
+                # someone has touched is worth an npm install, not worth
+                # deferring a __pycache__ that costs a second to rebuild.
+                meta = {"mtime": seen_at} if d == "node_modules" else None
+                items.append(
+                    make_item(full, size, f"{d} ({os.path.basename(dirpath)})", meta)
+                )
         for f in filenames:
             if os.path.splitext(f)[1] in TARGET_EXTS:
                 fp = os.path.join(dirpath, f)

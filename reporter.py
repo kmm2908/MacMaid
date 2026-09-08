@@ -87,8 +87,12 @@ def print_item_detail(item: dict) -> None:
 def build_summary_text(result: CleanResult) -> str:
     freed = format_size(result.bytes_freed)
     lines = [f"Cleaned: {result.moved} items, {freed} freed"]
-    if result.skipped:
-        lines.append(f"Skipped: {result.skipped} duplicate or already-covered path(s)")
+    if result.changed_paths:
+        lines.append(f"Left alone: {len(result.changed_paths)} path(s) changed between "
+                     f"the scan and the clean")
+    covered = result.skipped - len(result.changed_paths)
+    if covered > 0:
+        lines.append(f"Skipped: {covered} duplicate or already-covered path(s)")
     if result.errors:
         lines.append(f"Errors: {result.errors} item(s) could not be removed "
                      f"(details in ~/Library/Logs/mac-maid-error.log)")

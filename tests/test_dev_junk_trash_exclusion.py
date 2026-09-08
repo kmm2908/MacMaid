@@ -1,12 +1,23 @@
 import os
 import subprocess
+import time
 
 from modules import dev_junk
+
+# Fixture repositories are back-dated past the dormancy window, so these tests
+# keep testing the installed-software discriminator rather than liveness. The
+# offset is derived from the production constant, not restated, so the fixtures
+# cannot drift away from the rule they are meant to sit outside of.
+_FIXTURE_COMMIT_AGE = (dev_junk.DORMANT_DAYS_DEFAULT + 30) * 86400
 
 
 def _git(cwd, *args):
     """Fixture creation only — see tests/conftest.py."""
-    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+    stamp = f"{int(time.time() - _FIXTURE_COMMIT_AGE)} +0000"
+    env = dict(
+        os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp,
+    )
     subprocess.run(
         ["git", "-c", "user.email=t@example.com", "-c", "user.name=Test", *args],
         cwd=cwd, check=True, capture_output=True, text=True, env=env,
@@ -22,15 +33,28 @@ def _repo(root):
     _git(root, "commit", "-qm", "init")
 
 
+def _age_out(*paths: str) -> None:
+    """Dormancy now also asks whether the files were touched recently, so a
+    fixture built one millisecond ago reads as live work. Back-date it to the
+    same point as the commits, and these tests keep testing what they are for."""
+    stamp = time.time() - _FIXTURE_COMMIT_AGE
+    for p in paths:
+        os.utime(p, (stamp, stamp))
+
+
 def _make(root, rel, track=()):
     p = os.path.join(root, rel)
     os.makedirs(p, exist_ok=True)
     with open(os.path.join(p, "f.txt"), "w") as f:
         f.write("x" * 10)
     for name in track:
-        with open(os.path.join(os.path.dirname(p), name), "w") as f:
+        tracked = os.path.join(os.path.dirname(p), name)
+        with open(tracked, "w") as f:
             f.write("{}")
-        _git(root, "add", os.path.join(os.path.dirname(p), name))
+        _git(root, "add", tracked)
+        _git(root, "commit", "-qm", f"add {name}")
+        _age_out(tracked)
+    _age_out(os.path.join(p, "f.txt"), p, os.path.dirname(p))
     return p
 
 

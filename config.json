@@ -5,6 +5,7 @@
   "trash_retention_days": 7,
   "scan_paths": ["~/Downloads", "~/Desktop", "~/Documents"],
   "dev_scan_paths": ["~/", "/Volumes/Ext Data"],
+  "dev_junk_dormant_days": 180,
   "email_report_to": "kmmsubs@gmail.com",
   "modules": {
     "caches": true,

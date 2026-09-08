@@ -21,12 +21,22 @@ from modules import dev_junk
 
 GIT_ID = ["-c", "user.email=t@example.com", "-c", "user.name=Test"]
 
+# Fixture repositories are back-dated past the dormancy window, so these tests
+# keep testing the installed-software discriminator rather than liveness. The
+# offset is derived from the production constant, not restated, so the fixtures
+# cannot drift away from the rule they are meant to sit outside of.
+_FIXTURE_COMMIT_AGE = (dev_junk.DORMANT_DAYS_DEFAULT + 30) * 86400
+
 
 def _git(cwd: str, *args: str) -> None:
     """Fixture creation only — the developer's global config, hooks and signing
     key stay out of the fixtures. Production git behaviour is deliberately NOT
     isolated this way; see conftest.py."""
-    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+    stamp = f"{int(time.time() - _FIXTURE_COMMIT_AGE)} +0000"
+    env = dict(
+        os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp,
+    )
     subprocess.run(
         ["git", *GIT_ID, *args], cwd=cwd, check=True,
         capture_output=True, text=True, env=env,
@@ -51,13 +61,27 @@ def _repo(root: str) -> str:
     return root
 
 
+
+
+def _age_out(*paths: str) -> None:
+    """Dormancy now also asks whether the files were touched recently, so a
+    fixture built one millisecond ago reads as live work. Back-date it to the
+    same point as the commits, and these tests keep testing what they are for."""
+    stamp = time.time() - _FIXTURE_COMMIT_AGE
+    for p in paths:
+        os.utime(p, (stamp, stamp))
+
+
 def _project(root: str, rel: str) -> str:
     """A tracked node package inside `root` whose node_modules MUST be offered."""
     proj = os.path.join(root, rel)
-    _file(proj, "package.json", "{}")
+    manifest = _file(proj, "package.json", "{}")
     _git(root, "add", os.path.join(rel, "package.json"))
-    _file(os.path.join(proj, "node_modules", "dep"), "index.js")
-    return os.path.join(proj, "node_modules")
+    _git(root, "commit", "-qm", f"add {rel}")
+    nm = os.path.join(proj, "node_modules")
+    _file(nm, "index.js")
+    _age_out(manifest, os.path.join(nm, "index.js"), nm, proj)
+    return nm
 
 
 def _paths(base: str) -> list:
@@ -342,11 +366,18 @@ def test_linked_git_worktree_is_recognised(tmp_path):
     main = _repo(str(tmp_path / "main"))
     wt = str(tmp_path / "wt")
     _git(main, "worktree", "add", "-q", "-b", "feature", wt)
-    _file(wt, "package.json", "{}")
+    manifest = _file(wt, "package.json", "{}")
     _git(wt, "add", "package.json")
-    _file(os.path.join(wt, "node_modules", "dep"), "index.js")
+    _git(wt, "commit", "-qm", "add package")
+    nm = os.path.join(wt, "node_modules")
+    _file(nm, "index.js")
+    # `worktree add` checks every tracked file out with a current mtime, which
+    # is real activity as far as the rule is concerned — see the fresh-clone
+    # case in test_dev_junk_dormancy.py. Back-date the checkout as well.
+    _age_out(manifest, os.path.join(wt, "README.md"),
+             os.path.join(nm, "index.js"), nm, wt)
 
-    assert _paths(wt) == [os.path.join(wt, "node_modules")]
+    assert _paths(wt) == [nm]
 
 
 def test_missing_git_binary_declines_rather_than_offers(tmp_path, monkeypatch):
@@ -405,12 +436,16 @@ def test_git_ceiling_directories_is_honoured(tmp_path, monkeypatch):
 def test_tracked_but_deleted_manifest_is_not_evidence(tmp_path):
     """`ls-files` reports index entries, not files: a tracked package.json that
     has been deleted from the working tree must not vouch for node_modules."""
-    root = _repo(str(tmp_path))
-    wanted = _project(root, "keeper")
-    gone = os.path.join(root, "gone")
+    root = str(tmp_path)
+    wanted = _project(_repo(os.path.join(root, "live")), "keeper")
+    # Its own repository: removing a tracked file leaves a dirty working tree,
+    # and a dirty tree is work in flight — which would spare `keeper` for a
+    # reason that has nothing to do with the index entry under test.
+    other = _repo(os.path.join(root, "stale"))
+    gone = os.path.join(other, "gone")
     _file(gone, "package.json", "{}")
-    _git(root, "add", "gone/package.json")
-    _git(root, "commit", "-qm", "add")
+    _git(other, "add", "gone/package.json")
+    _git(other, "commit", "-qm", "add")
     os.remove(os.path.join(gone, "package.json"))
     _file(os.path.join(gone, "node_modules", "dep"), "index.js")
 
@@ -425,7 +460,10 @@ def test_git_is_queried_once_per_directory_across_scan_roots(tmp_path, monkeypat
     real_run = subprocess.run
 
     def counting(*a, **k):
-        calls.append(a[0][2])          # the `-C <dir>` argument
+        # (directory, subcommand): git is asked two different questions about a
+        # candidate — what it tracks, and how old its newest commit is — so
+        # keying on the directory alone would read the second as a repeat.
+        calls.append((a[0][2], a[0][3]))
         return real_run(*a, **k)
 
     monkeypatch.setattr(dev_junk.subprocess, "run", counting)

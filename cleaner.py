@@ -15,6 +15,7 @@ class CleanResult:
     error_paths: list = field(default_factory=list)
     moved_paths: list = field(default_factory=list)
     skipped: int = 0
+    changed_paths: list = field(default_factory=list)
 
 
 def plan_items(items: list[dict]) -> tuple[list[dict], int]:
@@ -100,6 +101,31 @@ def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_D
     return (removed, freed, errors)
 
 
+def _unchanged_since_scan(item: dict) -> bool:
+    """Re-check a candidate that recorded what it looked like when scanned.
+
+    Scanning and cleaning are not the same moment: seconds apart unattended,
+    potentially hours apart behind the review UI. A directory written to in
+    between is in use by something nobody has looked at, and for a dependency
+    tree the deletion would raise no error anywhere. No recorded mtime means
+    no claim was made, so nothing is re-checked.
+
+    KNOWN LIMIT, pinned by a test: a directory's mtime moves when an entry is
+    added or removed in it, not when something deeper down is rewritten. This
+    catches an install or an uninstall, which is what happens to a node_modules
+    between a scan and a clean; it does not catch an edit inside an existing
+    package. It is a last line, not the guard — the guard is the dormancy rule
+    in modules/dev_junk.py.
+    """
+    seen: float | None = (item.get("meta") or {}).get("mtime")
+    if seen is None:
+        return True
+    try:
+        return abs(os.path.getmtime(item["path"]) - seen) < 1e-6
+    except OSError:
+        return False
+
+
 def clean_items(items: list[dict], permanent: bool = False,
                 trash_retention_days: int = DEFAULT_TRASH_RETENTION_DAYS) -> CleanResult:
     result = CleanResult()
@@ -115,6 +141,10 @@ def clean_items(items: list[dict], permanent: bool = False,
                 result.errors += errors
                 if removed:
                     result.moved_paths.append(path)
+                continue
+            if not _unchanged_since_scan(item):
+                result.skipped += 1
+                result.changed_paths.append(path)
                 continue
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Not found: {path}")

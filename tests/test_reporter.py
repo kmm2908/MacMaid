@@ -35,3 +35,28 @@ def test_build_summary_text_silent_when_nothing_skipped_or_failed():
     text = build_summary_text(CleanResult(moved=2, bytes_freed=10))
     assert "skip" not in text.lower()
     assert "error" not in text.lower()
+
+
+def test_summary_separates_a_changed_path_from_a_duplicate():
+    """Two different reasons for not deleting something. Reporting both as
+    'duplicate or already-covered' hides the one that matters."""
+    from cleaner import CleanResult
+    from reporter import build_summary_text
+
+    text = build_summary_text(CleanResult(
+        moved=1, bytes_freed=10, skipped=2,
+        changed_paths=["/tmp/proj/node_modules"],
+    ))
+
+    assert "Left alone: 1 path(s) changed between the scan and the clean" in text
+    assert "Skipped: 1 duplicate or already-covered path(s)" in text
+
+
+def test_summary_says_nothing_about_skips_when_there_were_none():
+    from cleaner import CleanResult
+    from reporter import build_summary_text
+
+    text = build_summary_text(CleanResult(moved=1, bytes_freed=10))
+
+    assert "Left alone" not in text
+    assert "Skipped" not in text
