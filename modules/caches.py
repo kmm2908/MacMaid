@@ -4,6 +4,11 @@ from modules.base import make_result, make_item, is_removable
 USER_CACHE_DIR = os.path.expanduser("~/Library/Caches")
 SYS_CACHE_DIR = "/Library/Caches"
 
+# Installed tool binaries that live under Caches but are not rebuilt on demand: a missing one
+# fails the tool until someone reinstalls a version-matched copy. Case-insensitive prefixes, so
+# every Playwright binding (ms-playwright-mcp, ms-playwright-go, …) is covered.
+PROTECTED_PREFIXES = ("ms-playwright", "cypress")
+
 
 def _dir_size(path: str) -> int:
     total = 0
@@ -26,6 +31,8 @@ def _scan_cache_dir(base: str) -> list[dict]:
         return items
     try:
         for name in os.listdir(base):
+            if name.casefold().startswith(PROTECTED_PREFIXES):
+                continue
             full = os.path.join(base, name)
             if not is_removable(full):
                 continue  # root-owned /Library/Caches entries fail on every run
