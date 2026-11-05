@@ -13,6 +13,9 @@ DEFAULTS = {
     "email_report_to": "kmmsubs@gmail.com",
     "modules": {},
     "permanent_delete": False,
+    "storage_warn_gb": 25,
+    "storage_urgent_gb": 10,
+    "storage_realert_hours": 24,
 }
 
 _config: dict = {}

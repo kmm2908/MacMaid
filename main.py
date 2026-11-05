@@ -18,6 +18,7 @@ import emailer
 import scheduler
 import history
 import reviewer
+import storage_watch
 
 from modules import (
     caches, logs, trash, large_files, duplicates,
@@ -258,8 +259,13 @@ def main() -> None:
     parser.add_argument("--schedule-status", action="store_true", help="Show schedule status")
     parser.add_argument("--history", action="store_true", help="Show last 10 run history entries")
     parser.add_argument("--review", action="store_true", help="Open browser review UI for last scan results")
+    parser.add_argument("--storage-check", action="store_true", help="Alert if the main disk is low on space")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    if args.storage_check:
+        storage_watch.check()
+        return
 
     if args.schedule:
         ok = scheduler.install(args.schedule)

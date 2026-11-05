@@ -68,6 +68,18 @@ python main.py --schedule-status
 python main.py --unschedule
 ```
 
+`--schedule` also installs an hourly low-storage check (`com.macmaid.storage`), and
+`--unschedule` removes both. Run it by hand with:
+
+```bash
+python main.py --storage-check
+```
+
+Below `storage_warn_gb` free on the main disk it emails you and shows a notification, naming
+the Trash first and then the largest folders; below `storage_urgent_gb` the email is sent as
+urgent. It alerts once per level, again sooner only if things get worse, and repeats after
+`storage_realert_hours`. State lives in `~/Library/Logs/mac-maid-storage-state.json`.
+
 ### View run history
 
 ```bash
@@ -98,6 +110,9 @@ Copy or create `config.json` in the project root. All keys are optional — defa
   "dev_junk_dormant_days": 180,
   "email_report_to": "you@example.com",
   "permanent_delete": false,
+  "storage_warn_gb": 25,
+  "storage_urgent_gb": 10,
+  "storage_realert_hours": 24,
   "modules": {
     "caches": true,
     "logs": true,

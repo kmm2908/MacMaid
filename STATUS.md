@@ -1,5 +1,5 @@
 # MacMaid — Project Status
-_Last updated: 2026-09-08_
+_Last updated: 2026-11-05_
 
 ---
 
@@ -34,7 +34,8 @@ A macOS maintenance CLI: scans for junk across 14 categories, reports findings i
 - **README.md**: setup, all CLI flags, config reference, thermal sudo instructions
 - **`dev_junk` installed-software guard** (2026-09-01): the sweep offers an artefact only when git tracks matching evidence directly in its parent directory, plus deny-lists for install locations and `.app`/`.framework` bundles. Fixes the 2026-08-30 incident where the daily run stripped `node_modules` from six installed VS Code extensions and was also targeting the Codex CLI runtime. Measured on the real roots: 1311 artefacts offered before, 291 now — 527 under `$HOME` down to 1, while 7.32 GB of the original 7.42 GB of genuine project junk is still offered. Failures (no git, hang, exhausted budget) are declined and counted into the result's suggestion. Rule + accepted trade-offs: `CLAUDE.md`
 - **`dev_junk` dormancy gate** (2026-09-08): `node_modules` is offered only when the repository holding it has had no commit for `dev_junk_dormant_days` (default 180) **and** nothing locally says otherwise — the mtime of the project directory and every immediate entry in it (`.git` excluded, or the module's own git calls look like work), plus `git status`. The 2026-09-01 guard kept a `node_modules` whenever git tracked `package.json` beside it, which selected live projects rather than sparing them; one lost the same directory eight times and 519 had piled up in `/Volumes/Ext Data/.Trashes/501/`. The scan now also records the directory's mtime before deciding and `cleaner` re-checks it before deleting, so nothing installed between the scan and the clean is taken. Verified on the real roots: all 22 live projects spared (DeckForge, SiteBuilder's 20 workspaces, GHL-Clone), a planted 700-day-dormant checkout still offered, 0 directories git could not answer for. Two Codex review rounds: round 1 raised 1 Critical (an old commit date is not proof of local inactivity), round 2 raised 3 more (top-level-only re-check, baseline read after the size walk, untracked work invisible) — all fixed or pinned as documented limits. `tools/redproof_dev_junk.py` proves the tests can fail: 14 mutants, all caught. Rule + accepted trade-offs: `CLAUDE.md`
-- **Test suite**: 205 tests, all passing, 0 skipped (verified 2026-09-08)
+- **Low-storage warning** (2026-11-05): `storage_watch.py` runs hourly from its own LaunchAgent (`com.macmaid.storage`, installed and confirmed loaded and exiting 0). Below 25 GB free it emails (`--action`) and shows a notification; below 10 GB the email goes `--urgent`. The body lists Trash first, then the largest of Downloads, Caches, Developer, iPhone backups, Mail, Desktop and Documents. Prompted by the Data volume hitting 4.7 GB free on 2026-11-05, when macOS kept force-quitting RoboForm to reclaim space. Not built: watching the unified log for `CacheDeleteAppContainerCaches` terminations
+- **Test suite**: 233 tests, all passing, 0 skipped (verified 2026-11-05)
 - **Project hygiene** (2026-07-09): `CLAUDE.md`, `.claude/settings.json`, and superpowers design docs added; `.playwright-mcp` scratch + `settings.local.json` gitignored
 - **GitHub**: https://github.com/kmm2908/MacMaid
 
