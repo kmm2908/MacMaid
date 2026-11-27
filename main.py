@@ -23,7 +23,7 @@ import storage_watch
 from modules import (
     caches, logs, trash, large_files, duplicates,
     dev_junk, browsers, mail, login_items, disk_health, memory, thermal,
-    ios_backups, xcode_sims,
+    ios_backups, xcode_sims, downloads,
 )
 
 console = Console()
@@ -60,6 +60,7 @@ MODULES = {
     "caches": caches.scan,
     "logs": logs.scan,
     "trash": trash.scan,
+    "downloads": downloads.scan,  # after trash: see tests/test_downloads.py
     "large_files": large_files.scan,
     "duplicates": duplicates.scan,
     "dev_junk": dev_junk.scan,
@@ -111,10 +112,24 @@ def _trash_retention_days() -> int:
     return cfg.get("trash_retention_days") or cleaner_mod.DEFAULT_TRASH_RETENTION_DAYS
 
 
+def _without_moved(results: list[dict], moved_paths: list[str]) -> list[dict]:
+    """Drop review candidates an automatic clean has already taken (Downloads overlaps them)."""
+    gone = set(moved_paths)
+    kept_results = []
+    for r in results:
+        if r["risk"] == "review":
+            items = [i for i in r["items"] if i["path"] not in gone]
+            r = {**r, "items": items,
+                 "total_size_bytes": sum(i.get("size_bytes", 0) for i in items)}
+        kept_results.append(r)
+    return kept_results
+
+
 def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanResult:
     total_result = cleaner_mod.CleanResult()
 
-    for r in results:
+    for scanned in results:
+        r = _without_moved([scanned], total_result.moved_paths)[0]
         if r["risk"] == "inform-only" or not r["items"]:
             continue
 
@@ -131,6 +146,7 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 total_result.bytes_freed += cr.bytes_freed
                 total_result.skipped += cr.skipped
                 total_result.changed_paths.extend(cr.changed_paths)
+                total_result.moved_paths.extend(cr.moved_paths)
 
         elif r["risk"] == "review":
             show = questionary.confirm(
@@ -233,6 +249,7 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
             trash_retention_days=_trash_retention_days(),
         )
         log_errors(clean_result)
+        results = _without_moved(results, clean_result.moved_paths)
     report_text = reporter.print_unattended_report(results, clean_result, dry_run=dry_run)
 
     if not dry_run:

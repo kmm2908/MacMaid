@@ -1,9 +1,12 @@
+import errno
 import filecmp
 import os
 import shutil
 import time
 from dataclasses import dataclass, field
 from send2trash import send2trash
+
+from modules.downloads import is_protected
 
 DEFAULT_TRASH_RETENTION_DAYS = 7
 
@@ -45,7 +48,9 @@ def plan_items(items: list[dict]) -> tuple[list[dict], int]:
         seen.add(path)
         # An emptied trash folder still exists afterwards, so it does not
         # imply the removal of anything nested beneath it.
-        if item.get("action") != "empty-trash":
+        # Nor does a folder that is only removed if it turns out to be empty.
+        only_if_empty = (item.get("meta") or {}).get("only_if_empty")
+        if item.get("action") != "empty-trash" and not only_if_empty:
             removed_roots.append(path)
         kept.append(item)
     return kept, dropped
@@ -144,6 +149,32 @@ def _keeper_intact(item: dict) -> bool:
         return False
 
 
+def _still_allowed(item: dict) -> bool:
+    """Nothing red-tagged since the scan may be taken."""
+    root = (item.get("meta") or {}).get("red_tag_root")
+    return root is None or not is_protected(item["path"], root)
+
+
+def _remove_empty_folder(path: str) -> bool:
+    """Remove a folder holding nothing but .DS_Store. False if it holds more.
+
+    rmdir, never a recursive delete or a move: it refuses atomically, so a file
+    arriving after the check below cannot be taken with the folder.
+    """
+    names = os.listdir(path)
+    if any(name != ".DS_Store" for name in names):
+        return False
+    if names:
+        os.remove(os.path.join(path, ".DS_Store"))
+    try:
+        os.rmdir(path)
+    except OSError as e:
+        if e.errno == errno.ENOTEMPTY:
+            return False
+        raise
+    return True
+
+
 def clean_items(items: list[dict], permanent: bool = False,
                 trash_retention_days: int = DEFAULT_TRASH_RETENTION_DAYS) -> CleanResult:
     result = CleanResult()
@@ -160,7 +191,7 @@ def clean_items(items: list[dict], permanent: bool = False,
                 if removed:
                     result.moved_paths.append(path)
                 continue
-            if not _unchanged_since_scan(item):
+            if not _unchanged_since_scan(item) or not _still_allowed(item):
                 result.skipped += 1
                 result.changed_paths.append(path)
                 continue
@@ -168,6 +199,14 @@ def clean_items(items: list[dict], permanent: bool = False,
                 raise FileNotFoundError(f"Not found: {path}")
             if not _keeper_intact(item):
                 raise OSError("kept: the copy it duplicates is gone or has changed")
+            if (item.get("meta") or {}).get("only_if_empty"):
+                if _remove_empty_folder(path):
+                    result.moved += 1
+                    result.moved_paths.append(path)
+                else:
+                    result.skipped += 1
+                    result.changed_paths.append(path)
+                continue
             if permanent:
                 if os.path.isdir(path):
                     shutil.rmtree(path)

@@ -15,11 +15,11 @@ never rewritten. `trello sync`/`add`/`promote`/`open` cannot see `_running/` pro
 (Trello board card `zT2GhMnv`), so the `ToDo.md` mirror here will go stale.
 
 ## What This Is
-A macOS maintenance CLI: scans for junk across 14 categories, reports findings in a Rich terminal UI (or a browser review UI), and cleans up safely (send2trash by default). Supports interactive and unattended/scheduled modes. See `CLAUDE.md` for architecture and the module contract.
+A macOS maintenance CLI: scans for junk across 15 categories, reports findings in a Rich terminal UI (or a browser review UI), and cleans up safely (send2trash by default). Supports interactive and unattended/scheduled modes. See `CLAUDE.md` for architecture and the module contract.
 
 ## What's Built and Working
 
-- **14 scan modules**: `caches`, `logs`, `trash`, `large_files`, `duplicates`, `dev_junk`, `browsers`, `mail`, `login_items`, `disk_health`, `memory`, `thermal`, `ios_backups`, `xcode_sims` (each exposes `scan() -> dict` via `modules/base.py` helpers)
+- **15 scan modules** (`downloads` is off by default; the CleanUp cron still does that job): `caches`, `logs`, `trash`, `downloads`, `large_files`, `duplicates`, `dev_junk`, `browsers`, `mail`, `login_items`, `disk_health`, `memory`, `thermal`, `ios_backups`, `xcode_sims` (each exposes `scan() -> dict` via `modules/base.py` helpers)
 - **Cleaner**: send2trash (default) + permanent delete mode; `CleanResult` includes `moved_paths` for accurate UI state
 - **Reporter**: Rich terminal UI — panels, tables, progress bar, unattended text report, dry-run header
 - **Emailer**: wraps `~/.claude/utils/send_email.py`
@@ -68,7 +68,7 @@ A macOS maintenance CLI: scans for junk across 14 categories, reports findings i
 - [ ] **`dev_junk` residual risk** — a tool installed by `git clone` + `npm install` into a location no deny-list names is still offered for cleanup; only location distinguishes it from a project. Narrowing `dev_scan_paths` was ruled out (it would lose real cleanup under `~` and regress the moment someone widens it again). Revisit only if it bites.
 - [ ] **`dev_junk` no longer cleans venv bytecode** — `__pycache__` under `.venv`/`site-packages`, and any project living under `~/bin`, `~/opt`, `~/go`, `~/.config` or `~/Library`, are deliberately skipped. Costs ~0.08 GB on this machine; the trade-off is pinned by a test.
 - [ ] **Full browser UI** — move the entire scan/report/clean flow into the browser (replace Rich terminal output); surface all modules, not just Large & Old Files + Duplicates
-- [ ] **Merge the CleanUp project** — absorb `../CleanUp/cleanup.py` (Downloads auto-cleaner: Finder-tag protection, 24h guard, macOS notifications) as a new MacMaid module and retire the standalone CleanUp project
+- [ ] **Retire the standalone CleanUp project** (`../_running/CleanUp`) — its cleaner is now `modules/downloads.py` (2026-11-27), reported through the nightly email in place of a macOS notification. Switch-over waits on the owner: set `modules.downloads` to `true`, remove the 06:00 `cleanup.py` crontab line, mark CleanUp retired
 - [ ] Add a `config` subcommand or interactive config editor
 - [ ] Consider packaging for pip / Homebrew
 - [ ] Extend `--review` / email review link to any future `risk=review` modules beyond Large & Old Files + Duplicates

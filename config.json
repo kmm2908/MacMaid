@@ -11,6 +11,7 @@
     "caches": true,
     "logs": true,
     "trash": true,
+    "downloads": false,
     "large_files": true,
     "duplicates": true,
     "dev_junk": true,

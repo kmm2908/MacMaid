@@ -18,6 +18,9 @@ DEFAULTS = {
     "storage_realert_hours": 24,
 }
 
+# Modules that stay off until config.json switches them on
+OPT_IN_MODULES = {"downloads"}
+
 _config: dict = {}
 
 
@@ -42,7 +45,7 @@ def get(key: str):
 
 def module_enabled(name: str) -> bool:
     modules = get("modules") or {}
-    return modules.get(name, True)
+    return modules.get(name, name not in OPT_IN_MODULES)
 
 
 # Reset cache on module load (for testing with reload)

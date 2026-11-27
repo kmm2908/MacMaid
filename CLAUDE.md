@@ -26,8 +26,8 @@ Every `modules/*.py` must expose `scan() -> dict` returning a result from `make_
 - `action`: `"trash"` | `"empty-trash"` | `"none"`
 - `items`: list of `make_item()` dicts
 
-## Current Modules (14)
-`caches`, `logs`, `trash`, `large_files`, `duplicates`, `dev_junk`, `browsers`, `mail`, `login_items`, `disk_health`, `memory`, `thermal`, `ios_backups`, `xcode_sims`
+## Current Modules (15)
+`caches`, `logs`, `trash`, `downloads`, `large_files`, `duplicates`, `dev_junk`, `browsers`, `mail`, `login_items`, `disk_health`, `memory`, `thermal`, `ios_backups`, `xcode_sims`
 
 Register new modules in the `MODULES` dict at the top of `main.py`.
 
@@ -41,6 +41,7 @@ Register new modules in the `MODULES` dict at the top of `main.py`.
   - **Accepted trade-offs.** A genuine project under `~/bin`, `~/opt`, `~/go`, `~/.config` or `~/Library` is never offered (pinned by a test). A tool installed by `git clone` + `npm install` into a location none of those lists names still is — the known residual, not covered. Anything git cannot answer for — no binary, a hang, an operational failure, an exhausted `GIT_SCAN_BUDGET_SECONDS` — is declined and counted into the result's suggestion, so an incomplete scan does not read as a clean machine. `GIT_CEILING_DIRECTORIES` is honoured because it *restricts* discovery; stripped are the variables that redirect git to another index, change what `:(glob)*` means, or widen discovery (`GIT_DISCOVERY_ACROSS_FILESYSTEM`), and `LC_ALL`/`LANG` are pinned to `C` so the non-repository answer is not read in a translation
 - **`duplicates` lists one entry per real file** — symlinks are skipped and a repeated inode (overlapping `scan_paths`, hard link) is ignored and a hard-linked file is never offered, otherwise the only copy of a file is offered as its own duplicate. `cleaner._keeper_intact()` re-compares each duplicate with its keeper before trashing it
 - **`caches` skips `PROTECTED_PREFIXES`** — top-level `Caches` entries whose name starts (case-insensitively) with `ms-playwright` or `cypress`: installed tool binaries that merely live there. Only immediate children are checked; both tools install at the top level. Binning `ms-playwright` nightly broke seomachine's browser suite 18 times (2026-09-14). pip, Homebrew, pnpm, node-gyp and deno stay sweepable: their tools re-fetch transparently, so losing them costs a download, not a failed run
+- **`downloads` is opt-in (`config.OPT_IN_MODULES`)** — the CleanUp cron still does this job, and the nightly LaunchAgent runs this checkout in place, so enabling it is a live change. Port of CleanUp: files older than 24h by mtime go to Trash; a red Finder tag keeps a file or a whole subtree; unreadable tags count as red; symlinks are skipped; an emptied folder is removed with `rmdir` (`cleaner._remove_empty_folder()`), never moved or recursively deleted, so a late arrival cannot go with it. Review candidates it already took are dropped by `main._without_moved()`. It must stay registered after `trash`, because moved files keep their old mtime and emptying afterwards would delete them in the same run
 - **`storage_watch` alerts once per level** — state in `~/Library/Logs/mac-maid-storage-state.json`; a worse level alerts at once, the same level only after `storage_realert_hours`, and a failed email is not recorded so the next hour retries. A folder `du` cannot fully read is reported "could not be measured", never as 0 GB
 - **Thermal requires passwordless sudo** — `_has_passwordless_sudo()` checks first and returns an inform-only result if unavailable
 - **Scheduler uses `_resolve_python()`** — prefers active venv, then `.venv`/`venv` in project dir, then `sys.executable`

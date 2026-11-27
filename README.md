@@ -4,7 +4,7 @@ A macOS maintenance tool that scans for junk, reports what it finds, and cleans 
 
 ## Features
 
-- **14 scan modules**: caches, logs, trash, large/old files, duplicates, dev junk, browser caches, mail store, login items, disk health, memory pressure, thermal/CPU, iOS backups, Xcode simulators
+- **15 scan modules**: caches, logs, trash, Downloads auto-clean (off by default), large/old files, duplicates, dev junk, browser caches, mail store, login items, disk health, memory pressure, thermal/CPU, iOS backups, Xcode simulators
 - **Interactive mode**: review each category and choose what to clean
 - **Unattended mode**: auto-clean safe items and email a report
 - **Scheduler**: install a nightly LaunchAgent with one command
