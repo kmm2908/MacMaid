@@ -10,3 +10,5 @@ dist/
 .worktrees/
 .playwright-mcp/
 .claude/settings.local.json
+/logs/
+/state/

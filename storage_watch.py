@@ -152,11 +152,14 @@ def _save_state(state: dict) -> None:
         print(f"storage_watch: could not save state to {STATE_PATH}: {exc}")
 
 
-def _setting(key: str) -> float:
-    """A config value, or its default when it is not a positive number."""
-    value = cfg.get(key)
+def usable_setting(key: str, value: object) -> float:
+    """value when it is a positive number, otherwise the setting's default."""
     ok = isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
-    return float(value) if ok else float(cfg.DEFAULTS[key])
+    return value if ok else cfg.DEFAULTS[key]
+
+
+def _setting(key: str) -> float:
+    return float(usable_setting(key, cfg.get(key)))
 
 
 def _gb(n: float) -> str:

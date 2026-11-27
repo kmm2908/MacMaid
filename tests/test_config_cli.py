@@ -254,3 +254,42 @@ def test_bad_threshold_message_offers_set_as_well_as_unset(cfg_file, argv, capsy
     assert run(*argv) == 1
     assert "`config set storage_warn_gb <number>` or `config unset" in capsys.readouterr().err
     assert run("set", "storage_warn_gb", "40") == 0
+
+
+@pytest.mark.parametrize("data,urgent,warn", [
+    ({"storage_warn_gb": 5, "storage_urgent_gb": 30}, 30, 5),
+    ({"storage_warn_gb": 5}, 10, 5),
+    ({"storage_warn_gb": "x", "storage_urgent_gb": 30}, 30, 25),
+])
+def test_show_and_get_flag_urgent_above_warn(cfg_file, data, urgent, warn, capsys):
+    cfg_file.write_text(json.dumps(data))
+    note = f"(INVALID: storage_urgent_gb ({urgent}) is above storage_warn_gb ({warn}))"
+    assert run() == 0
+    mark = "" if "storage_urgent_gb" in data else "  (default)"
+    assert f"storage_urgent_gb = {urgent}{mark}  {note}\n" in capsys.readouterr().out
+    assert run("get", "storage_urgent_gb") == 1
+    out = capsys.readouterr()
+    assert out.out == "" and note in out.err and "`config set`" in out.err
+
+
+def test_inverted_thresholds_are_flagged_on_the_warn_line_too(cfg_file, capsys):
+    cfg_file.write_text('{"storage_warn_gb": 5, "storage_urgent_gb": 30}')
+    assert run() == 0
+    assert "storage_warn_gb = 5  (INVALID: storage_urgent_gb (30)" in capsys.readouterr().out
+    assert run("get", "storage_warn_gb") == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_equal_thresholds_are_not_flagged(cfg_file, capsys):
+    cfg_file.write_text('{"storage_warn_gb": 10, "storage_urgent_gb": 10}')
+    assert run() == 0
+    assert "INVALID" not in capsys.readouterr().out
+    assert run("get", "storage_urgent_gb") == 0
+
+
+def test_inversion_is_judged_on_the_values_the_disk_check_uses(cfg_file, capsys):
+    # Too big for `config set`, yet the disk check takes any positive number.
+    cfg_file.write_text('{"storage_warn_gb": 20, "storage_urgent_gb": 100001}')
+    assert run() == 0
+    assert ("storage_warn_gb = 20  (INVALID: storage_urgent_gb (100001) is above "
+            "storage_warn_gb (20))\n") in capsys.readouterr().out

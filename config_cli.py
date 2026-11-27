@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import config as cfg
+import storage_watch
 from modules.dev_junk import DORMANT_DAYS_DEFAULT
 
 WHOLE_NUMBER_KEYS = {"large_file_threshold_mb", "old_file_days", "log_retention_days",
@@ -115,6 +116,17 @@ def _check_thresholds(data: dict[str, Any], hint: str) -> None:
                          "storage_warn_gb ({storage_warn_gb}).".format(**levels) + hint)
 
 
+def _inversion(data: dict[str, Any], key: str) -> str | None:
+    """Note for a threshold when the disk check would be using urgent above warn."""
+    if key not in THRESHOLD_KEYS:
+        return None
+    urgent, warn = (storage_watch.usable_setting(k, data.get(k))
+                    for k in ("storage_urgent_gb", "storage_warn_gb"))
+    if urgent <= warn:
+        return None
+    return f"(INVALID: storage_urgent_gb ({urgent}) is above storage_warn_gb ({warn}))"
+
+
 def _threshold_hint(key: str, removing: bool) -> str:
     if key not in THRESHOLD_KEYS:
         return " Change one of them with `config set` first."
@@ -178,6 +190,9 @@ def _show(module_names: Sequence[str]) -> None:
         name = key.removeprefix(MODULE_PREFIX)
         section = data.get("modules", {}) if key.startswith(MODULE_PREFIX) else data
         mark = "" if name in section else "  (default)"
+        note = _inversion(data, key)
+        if note:
+            mark += f"  {note}"
         # A bad value is shown as stored: the app may read "false" in quotes as true.
         print(_bad_value(data, key) or f"{key} = {_value(key)}{mark}")
 
@@ -203,6 +218,10 @@ def run(argv: list[str], module_names: Sequence[str]) -> int:
         bad = _bad_value(data, args.key)
         if args.action == "get" and bad:
             raise ValueError(f"{bad}. Run {_remedy(args.key)}.")
+        note = _inversion(data, args.key)
+        if args.action == "get" and note:
+            raise ValueError(f"{args.key} = {_value(args.key)}  {note}. "
+                             "Change one of them with `config set`.")
         if args.action != "get":
             values = args.values if args.action == "set" else None
             changed = _changed(data, args.key, values)

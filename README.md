@@ -161,7 +161,8 @@ is left untouched. Changes apply from the next run, including the scheduled one.
 
 Path settings need at least one path. `storage_urgent_gb` may not be above
 `storage_warn_gb` — if a hand edit left it that way, fix it before changing anything else
-(correcting another invalid value is still allowed).
+(correcting another invalid value is still allowed). `config` and `config get` mark both
+levels `INVALID` while they are that way round.
 
 `dev_junk_dormant_days` is how long a project must have gone without a commit before its
 `node_modules` counts as junk. A project is also spared while anything local says it is in
