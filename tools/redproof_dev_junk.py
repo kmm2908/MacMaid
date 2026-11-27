@@ -94,8 +94,8 @@ MUTANTS = [
 
     ("an unanswerable git status treated as clean",
      "modules/dev_junk.py",
-     "    return _has_uncommitted_changes(parent, cache) is not False",
-     "    return _has_uncommitted_changes(parent, cache) is True",
+     "    return _repo_has_activity(parent, window, cache) is not False",
+     "    return _repo_has_activity(parent, window, cache) is True",
      ["test_an_unanswerable_status_counts_as_activity"]),
 
     ("only HEAD read, not every ref — a stale branch reads as abandoned",
@@ -110,8 +110,9 @@ MUTANTS = [
      "        if age is not None and age < window:\n            return False",
      # Not the unborn-HEAD test: a repository with no commits and a tracked
      # manifest is necessarily one with staged work, so the dirty-tree veto
-     # answers for it first. The budget case is the one that isolates this.
-     ["test_exhausted_git_budget_declines_and_is_counted"]),
+     # answers for it first. Nor the budget one: with no repository root the
+     # status veto declines too. Only a failing `log` isolates this.
+     ["test_an_unanswerable_log_is_not_read_as_dormant"]),
 
     ("config taken at face value — 0 or a bool switches the guard off",
      "modules/dev_junk.py",
@@ -191,6 +192,30 @@ MUTANTS = [
      "    covered = result.skipped\n"
      "    if covered > 0:",
      ["test_summary_separates_a_changed_path_from_a_duplicate"]),
+
+    ("only the collapsed untracked folder read, not the files inside it",
+     "modules/dev_junk.py",
+     "    if not stat.S_ISDIR(st.st_mode) or os.path.basename(path) in TARGET_DIRS:",
+     "    if True:",
+     ["test_untracked_work_buried_in_a_subdirectory_spares_the_project"]),
+
+    ("dependency directories walked, so a tool cache reads as work",
+     "modules/dev_junk.py",
+     "    if not stat.S_ISDIR(st.st_mode) or os.path.basename(path) in TARGET_DIRS:",
+     "    if not stat.S_ISDIR(st.st_mode):",
+     ["test_writes_inside_untracked_dependencies_are_not_work"]),
+
+    ("a folder git could not open read as a clean tree",
+     "modules/dev_junk.py",
+     'cache, partial=b"could not open directory",',
+     "cache,",
+     ["test_a_folder_git_cannot_open_counts_as_activity"]),
+
+    ("answers cached per candidate directory instead of per repository",
+     "modules/dev_junk.py",
+     "    key = _ACTIVE_PREFIX + root\n",
+     "    key = _ACTIVE_PREFIX + parent\n",
+     ["test_age_and_status_are_asked_once_per_repository"]),
 ]
 
 

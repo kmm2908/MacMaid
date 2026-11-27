@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import stat
 import subprocess
 import time
 from modules.base import make_result, make_item, TRASH_DIR_NAMES, is_in_trash, is_removable
@@ -176,8 +177,9 @@ def _tracked_names(parent: str, cache: dict) -> frozenset:
 # still there at all.
 DORMANT_DAYS_DEFAULT = 180
 # Neither is ever a resolved path, so neither can collide with a cache key.
+_ROOT_PREFIX = "root:"
 _AGE_PREFIX = "age:"
-_DIRTY_PREFIX = "dirty:"
+_ACTIVE_PREFIX = "active:"
 
 
 def _dormant_days() -> float:
@@ -198,12 +200,14 @@ def _dormant_days() -> float:
 
 
 def _git_answer(parent: str, args: list[str], cache: dict,
-                ordinary: bytes = b"") -> bytes | None:
+                ordinary: bytes = b"", partial: bytes = b"") -> bytes | None:
     """One read-only git question, charged to the scan-wide budget.
 
     None means git did not answer, which every caller treats as a decline.
     `ordinary` names a stderr fragment that is a legitimate answer rather than
     a malfunction, so it is not counted into the incomplete-scan tally.
+    `partial` names a warning git prints while still exiting 0, meaning the
+    answer is incomplete.
     """
     remaining = GIT_SCAN_BUDGET_SECONDS - cache.get(_SPENT_KEY, 0.0)
     if remaining <= 0:
@@ -218,7 +222,7 @@ def _git_answer(parent: str, args: list[str], cache: dict,
             capture_output=True, env=env, check=False,
             timeout=min(GIT_TIMEOUT_SECONDS, remaining),
         )
-        if r.returncode == 0:
+        if r.returncode == 0 and not (partial and partial in r.stderr):
             return r.stdout
         if not ordinary or ordinary not in r.stderr:
             cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1
@@ -227,6 +231,19 @@ def _git_answer(parent: str, args: list[str], cache: dict,
     finally:
         cache[_SPENT_KEY] = cache.get(_SPENT_KEY, 0.0) + (time.monotonic() - started)
     return None
+
+
+def _repo_root(parent: str, cache: dict) -> str | None:
+    """Top of the working tree holding `parent`, or None if git cannot say."""
+    key = _ROOT_PREFIX + os.path.realpath(parent)
+    if key in cache:
+        cached: str | None = cache[key]
+        return cached
+    out = _git_answer(parent, ["rev-parse", "--show-toplevel"], cache)
+    # Only git's own newline: a directory name may end in a space.
+    root = os.fsdecode(out).removesuffix("\n") if out else ""
+    cache[key] = root or None
+    return root or None
 
 
 def _head_age_days(parent: str, cache: dict) -> float | None:
@@ -239,14 +256,18 @@ def _head_age_days(parent: str, cache: dict) -> float | None:
     an exhausted budget — which is a decline, the same fail-closed direction as
     the rest of this module. Only ever called once a tracked manifest has been
     found, so the repository is already known to exist and the call is cheap.
+    Cached by repository: every package in a monorepo shares one answer.
     """
-    key = _AGE_PREFIX + os.path.realpath(parent)
+    root = _repo_root(parent, cache)
+    if root is None:
+        return None
+    key = _AGE_PREFIX + root
     if key in cache:
         cached: float | None = cache[key]
         return cached
     age: float | None = None
     out = _git_answer(
-        parent, ["log", "--all", "-1", "--format=%ct"], cache,
+        root, ["log", "--all", "-1", "--format=%ct"], cache,
         ordinary=b"does not have any commits",
     )
     if out is not None and out.strip():
@@ -258,23 +279,58 @@ def _head_age_days(parent: str, cache: dict) -> float | None:
     return age
 
 
-def _has_uncommitted_changes(parent: str, cache: dict) -> bool | None:
-    """Whether the repository holding `parent` has tracked work in flight.
+def _written_since(path: str, cutoff: float) -> bool:
+    """Whether an untracked entry, or anything under it, is newer than `cutoff`.
 
-    Untracked files are excluded on purpose: node_modules itself is one, and
-    scanning for them on a large checkout is the slow half of `git status`.
+    git collapses an untracked directory to one line, and rewriting a file deep
+    inside moves no directory mtime, so the files themselves have to be read.
+    Artefact directories are read but not entered: tool caches are written
+    inside them by merely running a project. Raises OSError for anything
+    unreadable.
+    """
+    st = os.lstat(path)
+    if st.st_mtime > cutoff:
+        return True
+    if not stat.S_ISDIR(st.st_mode) or os.path.basename(path) in TARGET_DIRS:
+        return False
+    with os.scandir(path) as entries:
+        return any(_written_since(e.path, cutoff) for e in entries)
+
+
+def _repo_has_activity(parent: str, window: float, cache: dict) -> bool | None:
+    """Whether the repository holding `parent` has work in flight.
+
+    A tracked change counts however old it is. An untracked path counts only if
+    written inside the window — a leftover file, or a node_modules nobody
+    gitignored, would otherwise block the repository for ever.
     None means git could not answer, which callers treat as activity.
     """
-    key = _DIRTY_PREFIX + os.path.realpath(parent)
+    root = _repo_root(parent, cache)
+    if root is None:
+        return None
+    key = _ACTIVE_PREFIX + root
     if key in cache:
         cached: bool | None = cache[key]
         return cached
     out = _git_answer(
-        parent, ["--no-optional-locks", "status", "--porcelain", "-uno"], cache,
+        root,
+        ["--no-optional-locks", "status", "--porcelain", "-z", "-unormal"],
+        cache, partial=b"could not open directory",
     )
-    dirty = None if out is None else bool(out.strip())
-    cache[key] = dirty
-    return dirty
+    active: bool | None = None
+    if out is not None:
+        cutoff = time.time() - window * 86400
+        try:
+            active = any(
+                not entry.startswith(b"?? ")
+                or _written_since(
+                    os.path.join(root, os.fsdecode(entry[3:]).rstrip("/")), cutoff)
+                for entry in out.split(b"\0") if entry
+            )
+        except (OSError, RecursionError):
+            active = None
+    cache[key] = active
+    return active
 
 
 def _worked_on_recently(parent: str, window: float, cache: dict) -> bool:
@@ -284,15 +340,15 @@ def _worked_on_recently(parent: str, window: float, cache: dict) -> bool:
     about a fresh clone of an old repository that was installed this morning,
     or a checkout being edited without commits. So: every immediate entry of
     the project directory — the artefact itself, the manifest, and anything
-    untracked or gitignored beside them, which `git status -uno` does not
-    report — plus the directory's own mtime, plus tracked work in flight.
+    gitignored beside them, which `git status` does not report — plus the
+    directory's own mtime, plus work in flight anywhere in the repository.
 
     `.git` is excluded deliberately: its mtime moves when git takes a lock, so
     this module's own queries would otherwise make every repository look busy.
 
-    Not recursive, and that is the documented limit — work buried in a
-    subdirectory shows up as a tracked modification or a commit, or not at all.
-    Fail closed: an unreadable mtime or an unanswerable git counts as activity.
+    The documented limit: a GITIGNORED file buried in a subdirectory is not
+    seen. Fail closed: an unreadable mtime or an unanswerable git counts as
+    activity.
     """
     cutoff = time.time() - window * 86400
     try:
@@ -306,7 +362,7 @@ def _worked_on_recently(parent: str, window: float, cache: dict) -> bool:
                 return True
         except OSError:
             return True
-    return _has_uncommitted_changes(parent, cache) is not False
+    return _repo_has_activity(parent, window, cache) is not False
 
 
 # Only a RECOGNISED interpreter tag is stripped. Splitting on the first dot

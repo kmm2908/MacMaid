@@ -72,6 +72,13 @@ def _age_out(*paths: str) -> None:
         os.utime(p, (stamp, stamp))
 
 
+def _age_tree(top: str) -> None:
+    """Back-date a planted install: left fresh and untracked, it would count as
+    work in flight and spare the whole repository, hiding what is under test."""
+    for dirpath, dirnames, filenames in os.walk(top):
+        _age_out(dirpath, *(os.path.join(dirpath, n) for n in dirnames + filenames))
+
+
 def _project(root: str, rel: str) -> str:
     """A tracked node package inside `root` whose node_modules MUST be offered."""
     proj = os.path.join(root, rel)
@@ -102,6 +109,7 @@ def test_installed_extension_inside_a_repo_not_offered(tmp_path):
     ext = os.path.join(root, ".vscode", "extensions", "publisher.ext-1.2.3")
     _file(ext, "package.json", '{"name": "ext"}')
     _file(os.path.join(ext, "node_modules", "dep"), "index.js")
+    _age_tree(os.path.join(root, ".vscode"))
 
     assert _paths(root) == [wanted]
 
@@ -174,6 +182,7 @@ def test_marker_excludes_a_fully_tracked_installed_checkout(tmp_path):
     _file(ext, "package.json", '{"name": "ext"}')
     _git(ext, "add", "package.json")
     _file(os.path.join(ext, "node_modules", "dep"), "index.js")
+    _age_tree(os.path.join(root, ".vscode"))
 
     assert _paths(root) == [wanted]
 
@@ -419,6 +428,7 @@ def test_application_bundle_is_installed_software_anywhere(tmp_path):
     _file(res, "package.json", "{}")
     _git(res, "add", "package.json")
     _file(os.path.join(res, "node_modules", "dep"), "index.js")
+    _age_tree(os.path.join(root, "Applications"))
 
     assert _paths(root) == [wanted]
 

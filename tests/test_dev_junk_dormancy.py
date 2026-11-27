@@ -156,11 +156,12 @@ def test_an_old_checkout_with_work_in_flight_is_spared(tmp_path):
 
 
 def test_untracked_work_beside_the_dependencies_spares_the_project(tmp_path):
-    """`git status -uno` never reports an untracked or gitignored file, and a
-    build output or a scratch file written today is somebody working."""
+    """`git status` never reports a gitignored file, and a build output or a
+    scratch file written today is somebody working."""
     root = _repo(str(tmp_path), age_days=DORMANT)
     _project(root, age_days=DORMANT)
     proj = os.path.join(root, "myproject")
+    _file(os.path.join(root, ".git", "info"), "exclude", "notes.txt\n")
     notes = _file(proj, "notes.txt")
     # Age the directory back after creating it, then EDIT the file: rewriting a
     # file leaves its directory's mtime alone, so only reading the entry itself
@@ -310,6 +311,25 @@ def test_an_unanswerable_status_counts_as_activity(tmp_path, monkeypatch):
     assert cache[dev_junk._DEGRADED_KEY] == 1
 
 
+def test_an_unanswerable_log_is_not_read_as_dormant(tmp_path, monkeypatch):
+    """The files are old and the tree is clean, so a failed commit-date question
+    is the only thing that can decline this."""
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    _project(root, age_days=DORMANT)
+    parent = os.path.join(root, "myproject")
+    real_run = dev_junk.subprocess.run
+
+    def fail_log(*a, **k):
+        if "log" in a[0]:
+            raise OSError("git is having a day")
+        return real_run(*a, **k)
+
+    monkeypatch.setattr(dev_junk.subprocess, "run", fail_log)
+    cache = dev_junk._new_cache()
+    assert dev_junk._is_project_junk("node_modules", parent, cache) is False
+    assert cache[dev_junk._DEGRADED_KEY] == 1
+
+
 # --- scope -------------------------------------------------------------------
 
 
@@ -359,3 +379,79 @@ def test_the_offered_directory_records_what_it_looked_like(tmp_path):
     dev_junk._scan_path(root, items)
 
     assert items[0]["meta"]["mtime"] == os.path.getmtime(nm)
+
+
+# --- nested untracked work ---------------------------------------------------
+
+
+def test_untracked_work_buried_in_a_subdirectory_spares_the_project(tmp_path):
+    """git collapses a new folder to one `src/` line, and rewriting a file two
+    levels down moves no directory mtime — only reading the file can see it."""
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    wanted = _project(root, age_days=DORMANT)
+    proj = os.path.join(root, "myproject")
+    deep = os.path.join(proj, "src", "feature")
+    buried = _file(deep, "new.js")
+    for p in (buried, deep, os.path.dirname(deep), proj):
+        _age(p, DORMANT)
+    assert _paths(root) == [wanted]       # old untracked files block nothing
+
+    with open(buried, "w") as f:
+        f.write("picked this back up today")
+
+    assert _paths(root) == []
+
+
+def test_writes_inside_untracked_dependencies_are_not_work(tmp_path):
+    """Where node_modules is not gitignored, tool caches written inside it by
+    merely running the project must not read as somebody editing."""
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    wanted = _project(root, age_days=DORMANT)
+    extra = os.path.join(root, "myproject", "tools")
+    cached = _file(os.path.join(extra, "node_modules", "dep"), "cache.json")
+    for p in (os.path.dirname(cached), os.path.join(extra, "node_modules"),
+              extra, os.path.join(root, "myproject")):
+        _age(p, DORMANT)
+
+    assert wanted in _paths(root)
+
+
+def test_a_folder_git_cannot_open_counts_as_activity(tmp_path):
+    """git warns and still exits 0, so the listing silently omits whatever is
+    in there. That is an unanswered question, not a clean tree."""
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    _project(root, age_days=DORMANT)
+    proj = os.path.join(root, "myproject")
+    locked = os.path.join(proj, "locked")
+    _age(_file(locked, "secret.js"), DORMANT)
+    _age(locked, DORMANT)
+    _age(proj, DORMANT)
+    os.chmod(locked, 0)
+    try:
+        cache = dev_junk._new_cache()
+        assert dev_junk._is_project_junk("node_modules", proj, cache) is False
+        assert cache[dev_junk._DEGRADED_KEY] == 1
+    finally:
+        os.chmod(locked, 0o755)
+
+
+# --- one repository, one answer ----------------------------------------------
+
+
+def test_age_and_status_are_asked_once_per_repository(tmp_path, monkeypatch):
+    """Both answers are repository-wide, so a monorepo must not pay for them
+    once per package."""
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    wanted = [_project(root, age_days=DORMANT, rel=r) for r in ("a", "b", "c")]
+    real_run = dev_junk.subprocess.run
+    asked: list = []
+
+    def counting(*a, **k):
+        asked.append(a[0])
+        return real_run(*a, **k)
+
+    monkeypatch.setattr(dev_junk.subprocess, "run", counting)
+
+    assert sorted(_paths(root)) == sorted(wanted)
+    assert sum("log" in c for c in asked) == 1
+    assert sum("status" in c for c in asked) == 1
