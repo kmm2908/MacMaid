@@ -128,3 +128,46 @@ def test_checker_rejects_a_known_bad_page(tmp_path):
     page.write_text('<body style="background:#07090c;color:#f2f6fa;padding:40px">'
                     '<p style="font-size:12px">too small</p></body>')
     assert any("below 24px" in line for line in contrast_check.check(page))
+
+
+@pytest.fixture(scope="module")
+def app_snapshots(tmp_path_factory):
+    """The full app's own views: scan progress, summary, and each kind of category."""
+    from tests.test_app_browser import App
+    out = tmp_path_factory.mktemp("app")
+    app = App(out)
+    pages = {}
+
+    def freeze(page, name):
+        html = re.sub(r"<script>.*?</script>", "", page.content(), flags=re.S)
+        pages[name] = out / f"{name}.html"
+        pages[name].write_text(html)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(app.url)
+            page.wait_for_selector("#progressList li")
+            freeze(page, "scanning")
+            app.release.set()
+            page.wait_for_selector("button.open-tab")
+            freeze(page, "summary")
+            page.click('.tab-btn[data-tab="Caches"]')
+            page.check('#tbody tr[data-path="/c/a"] input')
+            freeze(page, "safe-selected")
+            page.click('.tab-btn[data-tab="Trash"]')
+            page.wait_for_selector('#tbody tr[data-path="/u/.Trash"]')
+            freeze(page, "trash")
+            page.click('.tab-btn[data-tab="Memory"]')
+            page.wait_for_selector('#tbody tr[data-path="memory"]')
+            freeze(page, "information")
+            browser.close()
+    finally:
+        app.close()
+    return pages
+
+
+@pytest.mark.parametrize("state", ["scanning", "summary", "safe-selected", "trash", "information"])
+def test_app_page_is_readable(app_snapshots, state):
+    assert contrast_check.check(app_snapshots[state]) == []

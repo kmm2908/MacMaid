@@ -5,7 +5,8 @@ A macOS maintenance tool that scans for junk, reports what it finds, and cleans 
 ## Features
 
 - **15 scan modules**: caches, logs, trash, Downloads auto-clean (off by default), large/old files, duplicates, dev junk, browser caches, mail store, login items, disk health, memory pressure, thermal/CPU, iOS backups, Xcode simulators
-- **Interactive mode**: review each category and choose what to clean
+- **Browser app**: `python main.py` opens a page that scans, shows every category and cleans what you choose
+- **Terminal mode**: the same flow as questions in the terminal (`--terminal`)
 - **Unattended mode**: auto-clean safe items and email a report
 - **Scheduler**: install a nightly LaunchAgent with one command
 - **Run history**: log of every unattended run
@@ -26,10 +27,18 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Interactive scan
+### Scan and clean in the browser
 
 ```bash
 python main.py
+```
+
+Opens MacMaid in your browser and starts a scan, showing each category as it finishes. The Summary tab lists every category with its size; each category with results has its own tab. Caches, logs and the review categories (large files, duplicates, mail, iOS backups) let you tick items and move them to the Trash. The Trash tab empties entries that have been in the Trash longer than `trash_retention_days`, after its own confirmation. Information categories (disk health, memory, thermal, login items) have nothing to delete. **Scan again** reruns the scan. Apart from emptying old Trash, the browser never deletes permanently. Press Ctrl-C in the terminal, or Done in the page, to stop it.
+
+### Scan and clean in the terminal
+
+```bash
+python main.py --terminal
 ```
 
 Scans all enabled modules, displays results, then walks you through each category asking what to clean. Pressing Enter takes the capital-letter answer: it is No for emptying the Trash, for each reviewed file and for every deletion under `--permanent`.
@@ -107,7 +116,7 @@ Shows the last 10 unattended run records (date, items cleaned, bytes freed).
 python main.py --permanent
 ```
 
-Deletes files immediately instead of moving to Trash. Use with care.
+Deletes files immediately instead of moving to Trash. Use with care. This always runs in the terminal, since the browser only moves to the Trash.
 
 ## Configuration
 

@@ -4,6 +4,10 @@ from collections import defaultdict
 from modules.base import make_result, make_item
 import config as cfg
 
+# stat.SF_DATALESS from Python 3.13: an iCloud file whose contents are not on this Mac.
+# Reading one downloads it, and a stalled download blocks the scan for good.
+SF_DATALESS = 0x40000000
+
 
 def _md5(path: str) -> str | None:
     h = hashlib.md5()
@@ -23,6 +27,7 @@ def scan() -> dict:
     # One entry per real file: overlapping scan paths and hard links reach the same
     # inode twice, and listing it as a duplicate would offer up the only copy.
     seen: set[tuple[int, int]] = set()
+    in_cloud = 0
 
     for base in scan_paths:
         if not os.path.isdir(base):
@@ -37,6 +42,9 @@ def scan() -> dict:
                     stat = os.stat(fp)
                     inode = (stat.st_dev, stat.st_ino)
                     if stat.st_size == 0 or inode in seen:
+                        continue
+                    if getattr(stat, "st_flags", 0) & SF_DATALESS:
+                        in_cloud += 1
                         continue
                     digest = _md5(fp)
                     if digest:
@@ -70,6 +78,7 @@ def scan() -> dict:
         "Duplicates",
         "review",
         action="trash",
-        suggestion=f"{len(items)} duplicate files found ({size_mb:.0f} MB) — one copy of each kept",
+        suggestion=f"{len(items)} duplicate files found ({size_mb:.0f} MB) — one copy of each kept"
+                   + (f". {in_cloud} files stored only in iCloud were not checked" if in_cloud else ""),
         items=items,
     )

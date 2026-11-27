@@ -49,5 +49,5 @@ def _clean_inside_fixture_only(items, **kwargs):
 
 cleaner.send2trash = _fake_send2trash
 cleaner.clean_items = _clean_inside_fixture_only
-sys.argv = ["main.py", *sys.argv[1:]]
+sys.argv = ["main.py", "--terminal", *sys.argv[1:]]
 main.main()

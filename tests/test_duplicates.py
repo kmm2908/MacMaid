@@ -112,3 +112,32 @@ def test_duplicate_with_an_intact_keeper_is_trashed(tmp_path):
         assert cleaner.clean_items(_scan_over(tmp_path)).moved == 1
 
     trash.assert_called_once()
+
+
+def test_a_file_stored_only_in_icloud_is_never_read(tmp_path):
+    """Reading an evicted iCloud file downloads it; a stalled download hung the scan for 30 minutes."""
+    for name in ("a.bin", "b.bin", "cloud.bin"):
+        (tmp_path / name).write_bytes(b"same bytes")
+    cloud = str(tmp_path / "cloud.bin")
+    real_stat = os.stat
+
+    class Dataless:
+        def __init__(self, st):
+            self._st = st
+
+        def __getattr__(self, name):
+            return 0x40000000 if name == "st_flags" else getattr(self._st, name)
+
+    def stat(path, *args, **kwargs):
+        st = real_stat(path, *args, **kwargs)
+        return Dataless(st) if str(path) == cloud else st
+
+    read = []
+    with patch("modules.duplicates.cfg.get", return_value=[str(tmp_path)]), \
+         patch("modules.duplicates.os.stat", side_effect=stat), \
+         patch("modules.duplicates._md5", side_effect=lambda p: read.append(p) or "same"):
+        result = scan()
+
+    assert cloud not in read
+    assert len(result["items"]) == 1
+    assert "1 files stored only in iCloud were not checked" in result["suggestion"]

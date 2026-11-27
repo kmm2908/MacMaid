@@ -10,6 +10,7 @@ import time
 import urllib.request
 from datetime import date
 from pathlib import Path
+from typing import Callable
 
 import questionary
 from rich.console import Console
@@ -79,25 +80,35 @@ MODULES = {
 }
 
 
+def _scan_module_with(scan: Callable[[str], dict]) -> Callable[[str], dict]:
+    """A module that raises is reported as an error, and the scan goes on."""
+    def scan_one(name: str) -> dict:
+        try:
+            return scan(name)
+        except Exception as e:
+            return {
+                "category": name, "risk": "safe", "items": [],
+                "total_size_bytes": 0,
+                "suggestion": f"Error: {e}", "action": "none"
+            }
+    return scan_one
+
+
+scan_module = _scan_module_with(lambda name: MODULES[name]())
+
+
+def _known(names: list[str]) -> list[str]:
+    return [name for name in names if name in MODULES]
+
+
 def run_scan(enabled_modules: list[str]) -> list[dict]:
     results = []
     with reporter.make_progress() as progress:
         task = progress.add_task("Scanning...", total=len(enabled_modules))
         for name in enabled_modules:
             progress.update(task, description=f"Scanning {name}...")
-            scan_fn = MODULES.get(name)
-            if not scan_fn:
-                progress.advance(task)
-                continue
-            try:
-                result = scan_fn()
-            except Exception as e:
-                result = {
-                    "category": name, "risk": "safe", "items": [],
-                    "total_size_bytes": 0,
-                    "suggestion": f"Error: {e}", "action": "none"
-                }
-            results.append(result)
+            if name in MODULES:
+                results.append(scan_module(name))
             progress.advance(task)
     return results
 
@@ -325,7 +336,9 @@ def main() -> None:
     )
     parser.add_argument("--unattended", action="store_true", help="Run silently and email report")
     parser.add_argument("--modules", nargs="+", help="Run specific modules only")
-    parser.add_argument("--permanent", action="store_true", help="Delete permanently instead of Trash")
+    parser.add_argument("--terminal", action="store_true", help="Clean in the terminal instead of the browser")
+    parser.add_argument("--permanent", action="store_true",
+                        help="Delete permanently instead of Trash (terminal only)")
     parser.add_argument("--no-email", action="store_true", help="Skip email in unattended mode")
     parser.add_argument("--dry-run", action="store_true", help="Scan and report without deleting anything")
     parser.add_argument("--schedule", metavar="HH:MM", help="Install nightly LaunchAgent")
@@ -359,6 +372,10 @@ def main() -> None:
         console.print(history.format_history())
         return
 
+    if args.dry_run and not args.unattended:
+        console.print("[red]--dry-run only works with --unattended: every other mode can clean.[/red]")
+        sys.exit(2)
+
     if args.serve:
         if not RESULTS_PATH.exists():
             sys.exit(1)
@@ -381,16 +398,21 @@ def main() -> None:
         reviewer.start(cats)
         sys.exit(0)
 
-    reporter.print_banner()
-
     enabled = args.modules or [
         name for name in MODULES if cfg.module_enabled(name)
     ]
 
+    permanent = args.permanent or cfg.get("permanent_delete") or False
+
+    # The browser only ever moves to the Trash, so a permanent delete stays in the terminal.
+    if not (args.unattended or args.terminal or permanent):
+        console.print("Opening MacMaid in your browser. Press Ctrl-C here to stop it.")
+        reviewer.start_app(_known(enabled), scan_module)
+        return
+
+    reporter.print_banner()
     results = run_scan(enabled)
     reporter.print_results(results)
-
-    permanent = args.permanent or cfg.get("permanent_delete") or False
 
     if args.unattended:
         to_email = cfg.get("email_report_to") or ""
