@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import argparse
+import contextlib
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -173,40 +176,57 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
     return total_result
 
 
-def _start_review_server() -> None:
-    """Stop any running review server, launch a fresh one, and wait until it's ready."""
-    try:
-        urllib.request.urlopen(
-            f"http://localhost:{reviewer.REVIEW_PORT}/api/quit", data=b"{}", timeout=1
-        )
-        time.sleep(0.5)
-    except Exception:
-        pass
-    # Force-kill anything still holding the port
-    try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{reviewer.REVIEW_PORT}"],
-            capture_output=True, text=True,
-        )
-        for pid in result.stdout.split():
-            subprocess.run(["kill", "-9", pid], capture_output=True)
-        if result.stdout.strip():
-            time.sleep(0.5)
-    except Exception:
-        pass
-    subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), "--serve"],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+def _port_listeners() -> list[str]:
+    """PIDs listening on the review port. Listeners only: a plain port match also lists the browser."""
+    found = subprocess.run(
+        ["lsof", "-ti", f"tcp:{reviewer.REVIEW_PORT}", "-sTCP:LISTEN"], capture_output=True, text=True,
     )
+    return found.stdout.split()
+
+
+def _stop_old_review_server() -> bool:
+    """Stop the review server this checkout started earlier. True once the port is free.
+
+    Not through /api/quit, which needs that server's own token. Anything else on the port is left alone.
+    """
+    ours = f"{Path(__file__).resolve()} --serve"
+    for pid in _port_listeners():
+        command = subprocess.run(
+            ["ps", "-ww", "-o", "command=", "-p", pid], capture_output=True, text=True,
+        ).stdout.strip()
+        if command.endswith(ours):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid), signal.SIGTERM)
+    for _ in range(20):
+        if not _port_listeners():
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _start_review_server() -> bool:
+    """Replace any earlier review server. True once the new one answers."""
+    try:
+        if not _stop_old_review_server():
+            return False
+        server = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--serve"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
     # Wait up to 10s for the server to be ready before emailing the link
     for _ in range(20):
+        if server.poll() is not None:
+            return False
         try:
             urllib.request.urlopen(f"http://localhost:{reviewer.REVIEW_PORT}/", timeout=0.5)
-            break
-        except Exception:
+            return True
+        except OSError:
             time.sleep(0.5)
+    return False
 
 
 def _report_html(report_text: str, review_url: str | None = None) -> str:
@@ -260,9 +280,11 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
     if not no_email and to_email:
         review_url = None
         if _load_review_categories(results):
-            _start_review_server()
-            review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
-            report_text += f"\n\n---\nReview files: {review_url}"
+            if _start_review_server():
+                review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
+                report_text += f"\n\n---\nReview files: {review_url}"
+            else:
+                report_text += "\n\n---\nThe review page did not start. Run main.py --review to open it."
         html_body = _report_html(report_text, review_url)
         prefix = "[DRY RUN] " if dry_run else ""
         subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"

@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import re
+import secrets
 import signal
 import socket
 import subprocess
@@ -14,6 +16,11 @@ from flask import Flask, Response, jsonify, request
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 REVIEW_PORT = 5888
+# The server only listens on loopback, but a web page whose own domain is re-pointed
+# at 127.0.0.1 (DNS rebinding) still reaches it, under that domain's name.
+LOCAL_HOST = re.compile(r"(localhost|127\.0\.0\.1|\[::1\])(:\d+)?", re.IGNORECASE)
+TOKEN_HEADER = "X-MacMaid-Token"
+STALE_PAGE = "This page is from an earlier MacMaid session. Reload it, then try again."
 
 
 def _free_port() -> int:
@@ -43,6 +50,7 @@ def _persist_results(categories: dict[str, list[dict]]) -> None:
 
 def _make_app(categories: dict[str, list[dict]]) -> Flask:
     app = Flask(__name__)
+    token = secrets.token_urlsafe(32)
     tab_names = list(categories.keys())
 
     # Shared path index across all tabs; one path can be listed in more than one
@@ -51,9 +59,25 @@ def _make_app(categories: dict[str, list[dict]]) -> Flask:
     # Mutable per-category lists (deletions splice these in-place)
     cat_lists: dict[str, list[dict]] = {k: list(v) for k, v in categories.items()}
 
+    @app.before_request
+    def guard():
+        if not LOCAL_HOST.fullmatch(request.headers.get("Host", "")):
+            return jsonify({"error": "Open this page as http://localhost"}), 403
+        # Every POST acts on the Mac, so each must carry the token from this session's page.
+        sent = request.headers.get(TOKEN_HEADER, "")
+        if request.method == "POST" and not secrets.compare_digest(sent.encode(), token.encode()):
+            return jsonify({"error": STALE_PAGE}), 403
+        return None
+
+    @app.after_request
+    def no_framing(response):
+        # A framed page carries a working token, so another site could steer clicks onto it.
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
+
     @app.get("/")
     def index():
-        return Response(_html(), mimetype="text/html")
+        return Response(_html(token), mimetype="text/html", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/tabs")
     def tabs():
@@ -128,8 +152,8 @@ def serve(categories: dict[str, list[dict]]) -> None:
     app.run(host="localhost", port=REVIEW_PORT, use_reloader=False)
 
 
-def _html() -> str:
-    return _PAGE.replace("/*TOKENS*/", TOKENS_PATH.read_text())
+def _html(token: str) -> str:
+    return _PAGE.replace("/*TOKENS*/", TOKENS_PATH.read_text()).replace("__SESSION_TOKEN__", token)
 
 
 _PAGE = """<!DOCTYPE html>
@@ -208,6 +232,15 @@ _PAGE = """<!DOCTYPE html>
 <div id="toast"></div>
 <script>
 var tabs={},currentTab=null,pathMap={},bytesFreed=0,PAGE=200;
+var TOKEN='__SESSION_TOKEN__';
+function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-MacMaid-Token':TOKEN},body:JSON.stringify(body||{})});}
+async function refused(r){
+  if(r.status!==403)return false;
+  var d=await r.json();
+  document.getElementById('note').innerHTML='<span class="err">'+esc(d.error)+'</span>';
+  setStickyOffset();
+  return true;
+}
 var BASE_COLS=[
   {key:'label',label:'Name',sort:true},
   {key:'path',label:'Full Path',sort:true,cls:'path'},
@@ -375,7 +408,8 @@ async function moveToTrash(){
   var warn=hidden?'\\n\\n'+'Hidden by the current filter: '+hidden+'.':'';
   if(CONFIRMS[currentTab])warn+='\\n\\n'+CONFIRMS[currentTab]+' The nightly clean can delete it permanently from the Trash, as soon as its next run.';
   if(!confirm('Move '+paths.length+' file(s) to Trash?'+warn))return;
-  var r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:paths})});
+  var r=await post('/api/delete',{paths:paths});
+  if(await refused(r))return;
   var res=await r.json();
   bytesFreed+=res.bytes_freed;
   var gone=new Set((res.moved_paths||[]).concat(res.not_found_paths||[]));
@@ -402,8 +436,8 @@ async function moveToTrash(){
 }
 var toastTimer;
 function toast(msg,color){var t=document.getElementById('toast');t.textContent=msg;t.style.background=color||'var(--btn-grey)';t.style.borderColor=color?'var(--edge-red)':'var(--edge-grey)';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display='none';},3000);}
-async function reveal(path){var r=await fetch('/api/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path})});if(!r.ok){var d=await r.json();toast(d.error||'Could not reveal file','var(--btn-red)');}}
-async function done(){await fetch('/api/quit',{method:'POST'});document.body.innerHTML='<p style="padding:40px 0">MacMaid server stopped. You can close this tab.</p>';}
+async function reveal(path){var r=await post('/api/reveal',{path:path});if(await refused(r))return;if(!r.ok){var d=await r.json();toast(d.error||'Could not reveal file','var(--btn-red)');}}
+async function done(){var r=await post('/api/quit');if(await refused(r))return;if(!r.ok){document.getElementById('note').innerHTML='<span class="err">The server did not stop. Try Done again.</span>';setStickyOffset();return;}document.body.innerHTML='<p style="padding:40px 0">MacMaid server stopped. You can close this tab.</p>';}
 init();
 </script>
 </body>

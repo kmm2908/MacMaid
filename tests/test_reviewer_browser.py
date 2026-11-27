@@ -151,3 +151,74 @@ def test_an_item_left_alone_because_it_changed_is_said_so() -> None:
             browser.close()
     finally:
         server.shutdown()
+
+
+def test_reveal_and_done_work_with_the_pages_own_token() -> None:
+    server = make_server("localhost", 0, reviewer._make_app({"Duplicates": ITEMS}), threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with patch("reviewer.subprocess.run") as run, patch("reviewer.os.path.exists", return_value=True), \
+             patch("reviewer.os.kill") as kill, sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.goto(f"http://localhost:{server.server_port}/")
+            with page.expect_response("**/api/reveal") as reveal:
+                page.click("#tbody tr:first-child .reveal")
+            assert reveal.value.status == 200
+            opened = [c for c in run.call_args_list if c[0][0][:2] == ["open", "-R"]]
+            assert len(opened) == 1
+            page.click("text=Done")
+            page.wait_for_selector("text=server stopped")
+            page.wait_for_timeout(600)
+            kill.assert_called_once()
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def test_a_page_from_an_earlier_session_says_to_reload_and_changes_nothing() -> None:
+    server = make_server("localhost", 0, reviewer._make_app({"Duplicates": ITEMS}), threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with patch("reviewer.cleaner_mod.clean_items") as clean, patch("reviewer.os.kill") as kill, \
+             sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.on("dialog", lambda d: d.accept())
+            page.goto(f"http://localhost:{server.server_port}/")
+            page.wait_for_selector("#tbody tr")
+            page.evaluate("TOKEN='from-yesterday'")
+
+            page.check("#tbody tr:first-child input")
+            page.click("#trashBtn")
+            expect(page.locator("#note .err")).to_contain_text("Reload")
+            assert page.locator("#tbody tr").count() == 2
+            assert "Freed" not in page.inner_text("#summary")
+
+            page.evaluate("document.getElementById('note').textContent=''")
+            page.click("text=Done")
+            expect(page.locator("#note .err")).to_contain_text("Reload")
+            assert page.locator("text=server stopped").count() == 0
+            clean.assert_not_called()
+            kill.assert_not_called()
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def test_done_does_not_claim_the_server_stopped_when_it_did_not() -> None:
+    server = make_server("localhost", 0, reviewer._make_app({"Duplicates": ITEMS}), threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.route("**/api/quit", lambda route: route.fulfill(status=500, body="boom"))
+            page.goto(f"http://localhost:{server.server_port}/")
+            page.wait_for_selector("#tbody tr")
+            page.click("text=Done")
+            expect(page.locator("#note .err")).to_contain_text("did not stop")
+            assert page.locator("text=server stopped").count() == 0
+            browser.close()
+    finally:
+        server.shutdown()
