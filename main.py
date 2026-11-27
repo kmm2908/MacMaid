@@ -190,6 +190,10 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
                 for item in r["items"]:
                     reporter.print_item_detail(item)
                     question = "  Delete permanently?" if permanent else "  Move to Trash?"
+                    if reviewer.is_whole_mail(r["category"], item):
+                        console.print(f"  [bold red]{reviewer.WHOLE_MAIL_WARNING}[/bold red]", emoji=False)
+                        question = ("  Permanently delete your WHOLE mail folder?" if permanent
+                                    else "  Move your WHOLE mail folder to the Trash?")
                     if _confirm(question, default=False):
                         to_clean.append(item)
                 if to_clean:

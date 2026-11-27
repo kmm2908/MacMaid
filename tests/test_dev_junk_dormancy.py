@@ -455,3 +455,197 @@ def test_age_and_status_are_asked_once_per_repository(tmp_path, monkeypatch):
     assert sorted(_paths(root)) == sorted(wanted)
     assert sum("log" in c for c in asked) == 1
     assert sum("status" in c for c in asked) == 1
+
+
+# --- the answer is asked again at the moment of deletion -----------------------
+
+
+def _monorepo(tmp_path) -> tuple:
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    a = _project(root, age_days=DORMANT, rel="a")
+    b = _project(root, age_days=DORMANT, rel="b")
+    return root, a, b
+
+
+def _scanned(root: str) -> list:
+    items: list = []
+    dev_junk._scan_path(root, items)
+    return items
+
+
+def test_an_untouched_monorepo_is_still_cleaned(tmp_path):
+    """The control for the two below: the recheck must not refuse everything."""
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+    assert sorted(i["path"] for i in items) == sorted([a, b])
+
+    result = cleaner.clean_items(items, permanent=True)
+
+    assert result.moved == 2 and result.changed_paths == []
+    assert not os.path.exists(a) and not os.path.exists(b)
+
+
+def test_the_recheck_budget_is_shared_across_one_clean(tmp_path, monkeypatch):
+    """Each recheck asks afresh, but the time it takes is charged to one budget
+    for the whole clean, so a monorepo cannot repeat a slow walk per package.
+    Here the first package uses the git budget up; the second is declined."""
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+    real = dev_junk.still_project_junk
+    seen = []
+
+    def spend_it_all(name, parent, budget=None):
+        seen.append(budget)
+        answer = real(name, parent, budget)
+        budget[dev_junk._SPENT_KEY] = dev_junk.GIT_SCAN_BUDGET_SECONDS
+        return answer
+
+    monkeypatch.setattr(dev_junk, "still_project_junk", spend_it_all)
+    result = cleaner.clean_items(items, permanent=True)
+
+    assert len(seen) == 2 and seen[0] is seen[1]
+    assert result.moved == 1 and len(result.changed_paths) == 1
+
+
+def test_an_exhausted_recheck_budget_declines(tmp_path):
+    root, a, _ = _monorepo(tmp_path)
+    budget = dev_junk.new_recheck_budget()
+    budget[dev_junk._SPENT_KEY] = dev_junk.GIT_SCAN_BUDGET_SECONDS
+
+    assert dev_junk.still_project_junk("node_modules", os.path.dirname(a)) is True
+    assert dev_junk.still_project_junk("node_modules", os.path.dirname(a), budget) is False
+
+
+def test_an_edit_after_the_scan_spares_every_package_in_the_repository(tmp_path):
+    """The scan asks git once per repository and caches the answer, so package
+    A's 'quiet' was good for B too. Editing B/src/app.js between the scan and
+    the clean must reach the cleaner, which asks again."""
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+    _file(os.path.join(root, "b", "src"), "app.js", "edited after the scan")
+
+    result = cleaner.clean_items(items, permanent=True)
+
+    assert result.moved == 0
+    assert sorted(result.changed_paths) == sorted([a, b])
+    assert os.path.isdir(a) and os.path.isdir(b)
+
+
+def test_a_tracked_edit_after_the_scan_is_seen_however_old_the_file(tmp_path):
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+    with open(os.path.join(root, "b", "package.json"), "w") as f:
+        f.write('{"edited": true}')
+    _age(os.path.join(root, "b", "package.json"), DORMANT)   # old mtime, still dirty
+
+    result = cleaner.clean_items(items, permanent=True)
+
+    assert result.moved == 0 and os.path.isdir(a) and os.path.isdir(b)
+
+
+def test_the_cleaner_asks_git_again_rather_than_reusing_a_scan_answer(
+        tmp_path, monkeypatch):
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+    real_run = dev_junk.subprocess.run
+    asked: list = []
+
+    def counting(*args, **kw):
+        asked.append(args[0])
+        return real_run(*args, **kw)
+
+    monkeypatch.setattr(dev_junk.subprocess, "run", counting)
+    cleaner.clean_items(items, permanent=True)
+
+    # each package is re-asked on its own: nothing is shared between them
+    assert sum("status" in c for c in asked) == 2
+
+
+def test_a_git_that_cannot_answer_at_clean_time_leaves_the_directory_alone(
+        tmp_path, monkeypatch):
+    import cleaner
+    root, a, b = _monorepo(tmp_path)
+    items = _scanned(root)
+
+    def broken(*args, **kw):
+        raise OSError("git went away")
+
+    monkeypatch.setattr(dev_junk.subprocess, "run", broken)
+    result = cleaner.clean_items(items, permanent=True)
+
+    assert result.moved == 0
+    assert sorted(result.changed_paths) == sorted([a, b])
+    assert os.path.isdir(a) and os.path.isdir(b)
+
+
+# --- the untracked-tree walk has a deadline ------------------------------------
+
+
+def _repo_with_untracked_build_tree(tmp_path) -> tuple:
+    root = _repo(str(tmp_path), age_days=DORMANT)
+    wanted = _project(root, age_days=DORMANT)
+    proj = os.path.join(root, "myproject")
+    tree = os.path.join(proj, "build", "deep", "er")
+    for n in range(5):
+        _age(_file(tree, f"f{n}.o"), DORMANT)
+    for d in (tree, os.path.dirname(tree), os.path.join(proj, "build"), proj):
+        _age(d, DORMANT)
+    return root, wanted
+
+
+def test_an_untracked_tree_walk_that_runs_out_of_time_spares_the_repository(
+        tmp_path, monkeypatch):
+    """A million-file build tree must not stall the nightly scan. Out of time is
+    an unanswered question, so the repository is read as active — and counted."""
+    root, wanted = _repo_with_untracked_build_tree(tmp_path)
+    assert _paths(root) == [wanted]               # the control: old files, offered
+
+    monkeypatch.setattr(dev_junk, "WALK_SCAN_BUDGET_SECONDS", 0)
+    cache = dev_junk._new_cache()
+    proj = os.path.join(root, "myproject")
+
+    assert dev_junk._is_project_junk("node_modules", proj, cache) is False
+    assert cache[dev_junk._DEGRADED_KEY] == 1
+
+
+def test_the_walk_budget_is_shared_across_the_whole_scan(tmp_path):
+    root, wanted = _repo_with_untracked_build_tree(tmp_path)
+    proj = os.path.join(root, "myproject")
+    cache = dev_junk._new_cache()
+    cache[dev_junk._WALK_SPENT_KEY] = dev_junk.WALK_SCAN_BUDGET_SECONDS
+
+    assert dev_junk._is_project_junk("node_modules", proj, cache) is False
+    assert cache[dev_junk._DEGRADED_KEY] == 1
+
+
+def test_walking_an_untracked_tree_is_charged_to_the_budget(tmp_path):
+    root, wanted = _repo_with_untracked_build_tree(tmp_path)
+    cache = dev_junk._new_cache()
+
+    assert dev_junk._is_project_junk(
+        "node_modules", os.path.join(root, "myproject"), cache) is True
+    assert cache[dev_junk._WALK_SPENT_KEY] > 0
+
+
+def test_a_deeply_nested_untracked_tree_does_not_depend_on_the_stack(tmp_path):
+    """Recursion would hit the interpreter limit long before the OS path limit
+    on a pathological tree; an unanswered walk must not read as quiet."""
+    import sys
+    deep = str(tmp_path)
+    for _ in range(40):
+        deep = os.path.join(deep, "d")
+    _file(deep, "x")
+    old = sys.getrecursionlimit()
+    sys.setrecursionlimit(60)       # recursion this deep would raise
+    try:
+        assert dev_junk._written_since(
+            str(tmp_path), time.time() + 100, time.monotonic() + 60) is False
+        assert dev_junk._written_since(
+            str(tmp_path), time.time() - 100, time.monotonic() + 60) is True
+    finally:
+        sys.setrecursionlimit(old)

@@ -203,3 +203,23 @@ def test_nightly_review_list_drops_what_was_auto_cleaned(tmp_path):
         main.unattended_mode(results, False, "", no_email=True)
     kept = saved.call_args.args[0][0]
     assert kept["items"] == [stays] and kept["total_size_bytes"] == 7
+
+
+def test_red_tag_on_the_downloads_folder_itself_protects_everything(root):
+    old = _file(root / "old.zip")
+    nested = _file(root / "sub" / "deep" / "b.txt")
+    _tag(root)
+    result = downloads.scan()
+    assert result["items"] == []
+    assert downloads.is_protected(str(old), str(root))
+    assert downloads.is_protected(str(nested), str(root))
+    assert downloads.is_protected(str(root), str(root))
+
+
+def test_red_tag_on_the_downloads_folder_added_after_the_scan_is_honoured(root):
+    f = _file(root / "a" / "b.txt")
+    result = downloads.scan()
+    assert str(f) in _paths(result)
+    _tag(root)
+    _clean(result)
+    assert f.exists()

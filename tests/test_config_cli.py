@@ -204,6 +204,25 @@ def test_inverted_thresholds_in_the_file_block_unrelated_changes(cfg_file, argv,
     assert run(*argv) == 0
 
 
+@pytest.mark.parametrize("fix", [
+    ["set", "storage_warn_gb", "40"],
+    ["set", "storage_urgent_gb", "10"],
+    ["unset", "storage_urgent_gb"],
+])
+def test_unrelated_set_is_refused_over_an_inverted_pair_but_a_threshold_fix_is_not(
+        cfg_file, fix, capsys):
+    content = '{"storage_warn_gb": 20, "storage_urgent_gb": 30}'
+    cfg_file.write_text(content)
+    assert run("set", "old_file_days", "90") == 1
+    assert cfg_file.read_text() == content
+    err = capsys.readouterr().err
+    assert "storage_urgent_gb (30) cannot be above storage_warn_gb (20)" in err
+    assert "`config set`" in err
+    assert run(*fix) == 0
+    assert run("set", "old_file_days", "90") == 0
+    assert saved(cfg_file)["old_file_days"] == 90
+
+
 @pytest.mark.parametrize("argv", [
     ["unset", "permanent_delete"],
     ["set", "permanent_delete", "false"],

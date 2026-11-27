@@ -80,6 +80,14 @@ GIT_SCAN_BUDGET_SECONDS = 60
 # Neither is ever a resolved path, so neither can collide with a cache key.
 _SPENT_KEY = ""
 _DEGRADED_KEY = "?"
+_WALK_SPENT_KEY = "!"
+
+# A scan-wide ceiling on time spent reading UNTRACKED trees for recent writes
+# (`_written_since`). git collapses an untracked folder to one line, so an old
+# build tree of a million files would otherwise be walked end to end, nightly,
+# with nothing to stop it. Past the ceiling the repository is read as active —
+# spared — and counted into the suggestion like any other unanswered question.
+WALK_SCAN_BUDGET_SECONDS = 60
 
 # Tracked evidence that bytecode and tool caches here are regenerable from
 # source in this very directory. A frozen application ships .pyc with the .py
@@ -92,7 +100,7 @@ PY_PROJECT_FILES = frozenset({
 
 
 def _new_cache() -> dict:
-    return {_SPENT_KEY: 0.0, _DEGRADED_KEY: 0}
+    return {_SPENT_KEY: 0.0, _DEGRADED_KEY: 0, _WALK_SPENT_KEY: 0.0}
 
 
 def _is_installed_software_path(path: str) -> bool:
@@ -279,22 +287,37 @@ def _head_age_days(parent: str, cache: dict) -> float | None:
     return age
 
 
-def _written_since(path: str, cutoff: float) -> bool:
+class _WalkDeadline(Exception):
+    """The untracked-tree walk ran out of its time budget."""
+
+
+def _written_since(path: str, cutoff: float, deadline: float) -> bool:
     """Whether an untracked entry, or anything under it, is newer than `cutoff`.
 
     git collapses an untracked directory to one line, and rewriting a file deep
     inside moves no directory mtime, so the files themselves have to be read.
     Artefact directories are read but not entered: tool caches are written
-    inside them by merely running a project. Raises OSError for anything
-    unreadable.
+    inside them by merely running a project. Iterative, so depth cannot exhaust
+    the stack. Raises OSError for anything unreadable and _WalkDeadline once
+    `time.monotonic()` passes `deadline`.
     """
     st = os.lstat(path)
     if st.st_mtime > cutoff:
         return True
     if not stat.S_ISDIR(st.st_mode) or os.path.basename(path) in TARGET_DIRS:
         return False
-    with os.scandir(path) as entries:
-        return any(_written_since(e.path, cutoff) for e in entries)
+    pending = [path]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for e in entries:
+                if time.monotonic() >= deadline:
+                    raise _WalkDeadline
+                est = e.stat(follow_symlinks=False)
+                if est.st_mtime > cutoff:
+                    return True
+                if stat.S_ISDIR(est.st_mode) and e.name not in TARGET_DIRS:
+                    pending.append(e.path)
+    return False
 
 
 def _repo_has_activity(parent: str, window: float, cache: dict) -> bool | None:
@@ -320,15 +343,25 @@ def _repo_has_activity(parent: str, window: float, cache: dict) -> bool | None:
     active: bool | None = None
     if out is not None:
         cutoff = time.time() - window * 86400
+        started = time.monotonic()
+        deadline = started + max(
+            0.0, WALK_SCAN_BUDGET_SECONDS - cache.get(_WALK_SPENT_KEY, 0.0))
         try:
             active = any(
                 not entry.startswith(b"?? ")
                 or _written_since(
-                    os.path.join(root, os.fsdecode(entry[3:]).rstrip("/")), cutoff)
+                    os.path.join(root, os.fsdecode(entry[3:]).rstrip("/")),
+                    cutoff, deadline)
                 for entry in out.split(b"\0") if entry
             )
-        except (OSError, RecursionError):
+        except _WalkDeadline:
+            cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1
             active = None
+        except OSError:
+            active = None
+        finally:
+            cache[_WALK_SPENT_KEY] = (
+                cache.get(_WALK_SPENT_KEY, 0.0) + (time.monotonic() - started))
     cache[key] = active
     return active
 
@@ -435,6 +468,36 @@ def _is_project_junk(name: str, parent: str, cache: dict) -> bool:
     return bool(tracked & PY_PROJECT_FILES) or any(n.endswith(".py") for n in tracked)
 
 
+_BUDGET_KEYS = (_SPENT_KEY, _WALK_SPENT_KEY)
+
+
+def new_recheck_budget() -> dict:
+    """Time spent by the cleaner's rechecks, shared across one whole clean."""
+    return {key: 0.0 for key in _BUDGET_KEYS}
+
+
+def still_project_junk(name: str, parent: str, budget: dict | None = None) -> bool:
+    """Ask the whole question again, from nothing — for the cleaner, just before
+    it deletes. A fresh cache means no answer from the scan (which may be hours
+    old, or cached by another package in the same repository) is reused: git's
+    status, the commit age and the local mtimes are all read again. Anything
+    git cannot answer now is a decline, like everywhere else in this module.
+
+    Only the answers are fresh: the time spent is charged to `budget`, so a
+    monorepo with many packages cannot repeat a slow walk once per package.
+    An exhausted budget is a decline."""
+    cache = _new_cache()
+    if budget is not None:
+        for key in _BUDGET_KEYS:
+            cache[key] = budget.get(key, 0.0)
+    try:
+        return _is_project_junk(name, parent, cache)
+    finally:
+        if budget is not None:
+            for key in _BUDGET_KEYS:
+                budget[key] = cache.get(key, 0.0)
+
+
 def _scan_path(base: str, items: list, cache: dict | None = None) -> None:
     if not os.path.isdir(base) or is_in_trash(base):
         return
@@ -464,7 +527,10 @@ def _scan_path(base: str, items: list, cache: dict | None = None) -> None:
                 # Only node_modules: a re-check that refuses a directory
                 # someone has touched is worth an npm install, not worth
                 # deferring a __pycache__ that costs a second to rebuild.
-                meta = {"mtime": seen_at} if d == "node_modules" else None
+                # `recheck_parent` tells the cleaner to re-ask the activity
+                # question itself; the scan's cached answer is not good enough.
+                meta = ({"mtime": seen_at, "recheck_parent": dirpath}
+                        if d == "node_modules" else None)
                 items.append(
                     make_item(full, size, f"{d} ({os.path.basename(dirpath)})", meta)
                 )

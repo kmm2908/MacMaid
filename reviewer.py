@@ -13,6 +13,7 @@ from typing import Callable
 
 import cleaner as cleaner_mod
 import config as cfg
+from modules import mail as mail_module
 from flask import Flask, Response, jsonify, request
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -27,6 +28,15 @@ STALE_PAGE = "This page is from an earlier MacMaid session. Reload it, then try 
 SCAN_RUNNING = "A scan is running. Wait for it to finish, then try again."
 NOT_REMOVABLE = "Nothing in this category can be removed from here."
 EMPTY_TRASH_UNCONFIRMED = "Emptying the Trash needs its own confirmation. Use the Empty old Trash button."
+MAIL_CATEGORY = "Mail Store"
+WHOLE_MAIL_WARNING = ("This is your WHOLE mail folder (~/Library/Mail). "
+                      "Mail kept only on this Mac would be lost.")
+WHOLE_MAIL_UNCONFIRMED = ("Moving your whole mail folder (~/Library/Mail) needs its own confirmation: "
+                          "mail kept only on this Mac would be lost. Use the Move to Trash button on the Mail Store tab.")
+
+
+def is_whole_mail(category: str, item: dict) -> bool:
+    return category == MAIL_CATEGORY or item.get("path") == mail_module.MAIL_DIR
 
 
 def _free_port() -> int:
@@ -193,7 +203,7 @@ def _make_app(categories: dict[str, list[dict]],
         for name in names:
             for item in cat_lists[name]:
                 if item["path"] in paths and item["path"] not in found:
-                    found[item["path"]] = {**item, "action": info[name]["action"]}
+                    found[item["path"]] = {**item, "action": info[name]["action"], "category": name}
         return list(found.values())
 
     @app.post("/api/delete")
@@ -208,6 +218,9 @@ def _make_app(categories: dict[str, list[dict]],
                 return jsonify({"error": NOT_REMOVABLE}), 400
             if "empty-trash" in actions and body.get("empty_trash") is not True:
                 return jsonify({"error": EMPTY_TRASH_UNCONFIRMED}), 400
+            if any(is_whole_mail(i["category"], i) for i in to_clean) \
+                    and body.get("confirm_whole_mail") is not True:
+                return jsonify({"error": WHOLE_MAIL_UNCONFIRMED}), 400
             result = cleaner_mod.clean_items(to_clean, permanent=False,
                                              trash_retention_days=_retention_days())
             # An emptied Trash folder stays listed while anything in it could not be removed.
@@ -398,6 +411,7 @@ var INFO_COLS=[
   {key:'label',label:'Name',sort:true},
   {key:'size_bytes',label:'Size',sort:true,cls:'size'}
 ];
+var MAIL_TAB='Mail Store';
 var NOTES={
   'Mail Store':'This is your whole mail folder. Some of its mail may exist nowhere else.',
   'iOS Backups':'Remove old devices or duplicate backups only.'
@@ -663,8 +677,11 @@ async function moveToTrash(){
   var hidden=paths.filter(function(p){return!shown.has(p);}).length;
   var warn=hidden?'\\n\\n'+'Hidden by the current filter: '+hidden+'.':'';
   if(CONFIRMS[currentTab])warn+='\\n\\n'+CONFIRMS[currentTab]+' The nightly clean can delete it permanently from the Trash, as soon as its next run.';
-  if(!confirm('Move '+paths.length+' file(s) to Trash?'+warn))return;
-  var r=await post('/api/delete',{tab:currentTab,paths:paths});
+  var ask=currentTab===MAIL_TAB?'Move your whole mail folder to the Trash?':'Move '+paths.length+' file(s) to Trash?';
+  if(!confirm(ask+warn))return;
+  var body={tab:currentTab,paths:paths};
+  if(currentTab===MAIL_TAB)body.confirm_whole_mail=true;
+  var r=await post('/api/delete',body);
   if(await failed(r))return;
   await cleaned(await r.json());
 }

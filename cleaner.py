@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from send2trash import send2trash
 
+from modules import dev_junk
 from modules.base import binned_before, newest_mtime
 from modules.downloads import is_protected
 
@@ -147,6 +148,20 @@ def _unchanged_since_scan(item: dict) -> bool:
         return False
 
 
+def _repo_still_quiet(item: dict, budget: dict) -> bool:
+    """A dependency tree is only taken while its project is STILL finished with.
+
+    The scan answered that once per repository and cached it, then possibly
+    waited hours behind the review UI; an edit in a sibling package since then
+    would never be seen. So the whole question is asked again, uncached, now —
+    and an unanswerable git is a refusal. No `recheck_parent` means the scan
+    made no such claim.
+    """
+    parent = (item.get("meta") or {}).get("recheck_parent")
+    return parent is None or dev_junk.still_project_junk(
+        os.path.basename(item["path"]), parent, budget)
+
+
 def _keeper_intact(item: dict) -> bool:
     """A duplicate may only go while a separate, identical copy of it remains.
 
@@ -195,6 +210,7 @@ def clean_items(items: list[dict], permanent: bool = False,
     result = CleanResult()
     planned, dropped = plan_items(items)
     result.skipped = dropped
+    recheck_budget = dev_junk.new_recheck_budget()
     for item in planned:
         path = item["path"]
         try:
@@ -207,7 +223,8 @@ def clean_items(items: list[dict], permanent: bool = False,
                 if removed:
                     result.moved_paths.append(path)
                 continue
-            if not _unchanged_since_scan(item) or not _still_allowed(item):
+            if (not _unchanged_since_scan(item) or not _still_allowed(item)
+                    or not _repo_still_quiet(item, recheck_budget)):
                 result.skipped += 1
                 result.changed_paths.append(path)
                 continue

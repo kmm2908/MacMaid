@@ -253,3 +253,42 @@ def test_a_dry_run_that_would_clean_is_refused(argv):
         main.main()
     assert stop.value.code == 2
     assert not (app.called or review.called or terminal.called or scan.called)
+
+
+def mail_app():
+    return reviewer._make_app({"Mail Store": [item("/m/Mail", 900)],
+                               "Large & Old Files": [item("/d/big.dmg", 500)]}).test_client()
+
+
+def test_the_whole_mail_folder_is_refused_without_its_own_confirmation():
+    client = mail_app()
+    with patch("reviewer.cleaner_mod.clean_items") as clean:
+        tabbed = post(client, "/api/delete", {"tab": "Mail Store", "paths": ["/m/Mail"]})
+        untabbed = post(client, "/api/delete", {"paths": ["/m/Mail"]})
+        falsy = post(client, "/api/delete", {"tab": "Mail Store", "paths": ["/m/Mail"],
+                                             "confirm_whole_mail": "yes"})
+        mixed = post(client, "/api/delete", {"paths": ["/m/Mail", "/d/big.dmg"]})
+    assert [r.status_code for r in (tabbed, untabbed, falsy, mixed)] == [400, 400, 400, 400]
+    assert "~/Library/Mail" in tabbed.get_json()["error"]
+    assert "only on this Mac" in tabbed.get_json()["error"]
+    clean.assert_not_called()
+
+
+def test_the_whole_mail_folder_moves_once_confirmed_and_other_tabs_need_no_flag():
+    client = mail_app()
+    with patch("reviewer.cleaner_mod.clean_items", return_value=cleaner.CleanResult()) as clean, \
+         patch("reviewer._persist_results"):
+        mail = post(client, "/api/delete", {"tab": "Mail Store", "paths": ["/m/Mail"],
+                                            "confirm_whole_mail": True})
+        big = post(client, "/api/delete", {"tab": "Large & Old Files", "paths": ["/d/big.dmg"]})
+    assert (mail.status_code, big.status_code) == (200, 200)
+    assert [[i["path"] for i in c.args[0]] for c in clean.call_args_list] == [["/m/Mail"], ["/d/big.dmg"]]
+
+
+def test_the_real_mail_folder_is_guarded_whatever_its_category_is_called():
+    with patch("reviewer.mail_module.MAIL_DIR", "/Users/x/Library/Mail"):
+        client = reviewer._make_app({"Large & Old Files": [item("/Users/x/Library/Mail", 900)]}).test_client()
+        with patch("reviewer.cleaner_mod.clean_items") as clean:
+            resp = post(client, "/api/delete", {"tab": "Large & Old Files", "paths": ["/Users/x/Library/Mail"]})
+    assert resp.status_code == 400
+    clean.assert_not_called()

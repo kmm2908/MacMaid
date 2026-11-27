@@ -223,3 +223,62 @@ def test_email_has_no_review_link_when_the_server_did_not_start(tmp_path, monkey
     body, html = sent[0]
     assert "localhost" not in body + html
     assert "main.py --review" in body
+
+
+def _review_result(category, paths):
+    items = [{"path": p, "label": p.rsplit("/", 1)[-1], "size_bytes": 10, "meta": {}} for p in paths]
+    return {"category": category, "risk": "review", "action": "trash", "items": items,
+            "total_size_bytes": 10 * len(items), "suggestion": ""}
+
+
+def test_a_file_moved_in_one_review_step_is_not_offered_again_in_a_later_one():
+    import cleaner
+    results = [_review_result("Large & Old Files", ["/d/old.dmg"]),
+               _review_result("Duplicates", ["/d/old.dmg", "/d/other.dmg"])]
+    asked = []
+
+    def confirm(question, default):
+        asked.append(question)
+        return True
+
+    def clean(items, **kw):
+        return cleaner.CleanResult(moved=len(items), moved_paths=[i["path"] for i in items])
+
+    with patch("main._confirm", side_effect=confirm), patch("main.reporter.print_item_detail") as shown, \
+         patch("main.cleaner_mod.clean_items", side_effect=clean) as cleaned:
+        total = main.interactive_mode(results, permanent=False)
+
+    offered = [c.args[0]["path"] for c in shown.call_args_list]
+    assert offered == ["/d/old.dmg", "/d/other.dmg"]
+    assert [[i["path"] for i in c.args[0]] for c in cleaned.call_args_list] == [["/d/old.dmg"], ["/d/other.dmg"]]
+    assert total.moved_paths == ["/d/old.dmg", "/d/other.dmg"]
+
+
+@pytest.mark.parametrize("permanent, words", [(False, "Move your WHOLE mail folder"),
+                                              (True, "Permanently delete your WHOLE mail folder")])
+def test_the_terminal_review_names_the_whole_mail_folder_before_moving_it(permanent, words, capsys):
+    results = [_review_result("Mail Store", ["/Users/x/Library/Mail"])]
+    asked = []
+
+    def confirm(question, default):
+        asked.append((question, default))
+        return not question.startswith("  ")
+
+    with patch("main._confirm", side_effect=confirm), \
+         patch("main.console", main.Console(width=300, force_terminal=False)), \
+         patch("main.cleaner_mod.clean_items") as cleaned:
+        main.interactive_mode(results, permanent=permanent)
+
+    item_question, default = asked[1]
+    assert words in item_question and default is False
+    cleaned.assert_not_called()
+    assert "Mail kept only on this Mac would be lost" in capsys.readouterr().out
+
+
+def test_other_review_items_get_no_mail_warning(capsys):
+    results = [_review_result("Large & Old Files", ["/d/big.dmg"])]
+    with patch("main._confirm", return_value=False) as confirm, \
+         patch("main.console", main.Console(width=300, force_terminal=False)):
+        main.interactive_mode(results, permanent=False)
+    assert "WHOLE mail" not in capsys.readouterr().out
+    assert "WHOLE mail" not in str(confirm.call_args_list)

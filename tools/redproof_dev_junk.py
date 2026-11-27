@@ -143,14 +143,16 @@ MUTANTS = [
 
     ("the scan stops recording what the directory looked like",
      "modules/dev_junk.py",
-     '                meta = {"mtime": seen_at} if d == "node_modules" else None',
+     '                meta = ({"mtime": seen_at, "recheck_parent": dirpath}\n'
+     '                        if d == "node_modules" else None)',
      "                meta = None",
      ["test_the_offered_directory_records_what_it_looked_like"]),
 
     ("the cleaner stops re-checking before it deletes",
      "cleaner.py",
-     "if not _unchanged_since_scan(item) or not _still_allowed(item):",
-     "if not _still_allowed(item):",
+     "if (not _unchanged_since_scan(item) or not _still_allowed(item)\n"
+     "                    or not _repo_still_quiet(item)):",
+     "if not _still_allowed(item) or not _repo_still_quiet(item):",
      ["test_a_directory_written_to_since_the_scan_is_not_cleaned"]),
     ("the baseline read AFTER the size walk, so an install during it closes the race",
      "modules/dev_junk.py",
@@ -218,6 +220,72 @@ MUTANTS = [
      "    key = _ACTIVE_PREFIX + root\n",
      "    key = _ACTIVE_PREFIX + parent\n",
      ["test_age_and_status_are_asked_once_per_repository"]),
+    ("the cleaner trusts the scan's cached answer instead of asking again",
+     "cleaner.py",
+     "                    or not _repo_still_quiet(item)):",
+     "                    ):",
+     ["test_an_edit_after_the_scan_spares_every_package_in_the_repository",
+      "test_a_tracked_edit_after_the_scan_is_seen_however_old_the_file",
+      "test_the_cleaner_asks_git_again_rather_than_reusing_a_scan_answer",
+      "test_a_git_that_cannot_answer_at_clean_time_leaves_the_directory_alone",
+      "test_a_dependency_tree_whose_project_cannot_be_rechecked_is_left_alone"]),
+
+    ("the re-check reuses one cache across packages, so A's answer stands for B",
+     "modules/dev_junk.py",
+     "    return _is_project_junk(name, parent, _new_cache())",
+     "    return _is_project_junk(\n"
+     "        name, parent, still_project_junk.__dict__.setdefault('c', _new_cache()))",
+     ["test_the_cleaner_asks_git_again_rather_than_reusing_a_scan_answer"]),
+
+    ("the scan stops telling the cleaner which project to re-check",
+     "modules/dev_junk.py",
+     '{"mtime": seen_at, "recheck_parent": dirpath}',
+     '{"mtime": seen_at}',
+     ["test_an_edit_after_the_scan_spares_every_package_in_the_repository"]),
+
+    ("no deadline on the untracked-tree walk",
+     "modules/dev_junk.py",
+     "                if time.monotonic() >= deadline:\n"
+     "                    raise _WalkDeadline",
+     "                if False:\n"
+     "                    raise _WalkDeadline",
+     ["test_an_untracked_tree_walk_that_runs_out_of_time_spares_the_repository",
+      "test_the_walk_budget_is_shared_across_the_whole_scan"]),
+
+    ("a walk that ran out of time read as a quiet repository",
+     "modules/dev_junk.py",
+     "        except _WalkDeadline:\n"
+     "            cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1\n"
+     "            active = None",
+     "        except _WalkDeadline:\n"
+     "            cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1\n"
+     "            active = False",
+     ["test_an_untracked_tree_walk_that_runs_out_of_time_spares_the_repository",
+      "test_the_walk_budget_is_shared_across_the_whole_scan"]),
+
+    ("a walk that ran out of time not counted into the incomplete-scan tally",
+     "modules/dev_junk.py",
+     "        except _WalkDeadline:\n"
+     "            cache[_DEGRADED_KEY] = cache.get(_DEGRADED_KEY, 0) + 1\n",
+     "        except _WalkDeadline:\n",
+     ["test_an_untracked_tree_walk_that_runs_out_of_time_spares_the_repository",
+      "test_the_walk_budget_is_shared_across_the_whole_scan"]),
+
+    ("time spent walking never charged, so the budget is per call not per scan",
+     "modules/dev_junk.py",
+     "            cache[_WALK_SPENT_KEY] = (\n"
+     "                cache.get(_WALK_SPENT_KEY, 0.0) + (time.monotonic() - started))\n",
+     "            pass\n",
+     ["test_walking_an_untracked_tree_is_charged_to_the_budget"]),
+
+    ("the untracked-tree walk made recursive again",
+     "modules/dev_junk.py",
+     "                if stat.S_ISDIR(est.st_mode) and e.name not in TARGET_DIRS:\n"
+     "                    pending.append(e.path)\n",
+     "                if stat.S_ISDIR(est.st_mode) and e.name not in TARGET_DIRS:\n"
+     "                    if _written_since(e.path, cutoff, deadline):\n"
+     "                        return True\n",
+     ["test_a_deeply_nested_untracked_tree_does_not_depend_on_the_stack"]),
 ]
 
 

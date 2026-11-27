@@ -154,3 +154,20 @@ def test_a_failed_trash_emptying_names_what_could_not_be_removed(tmp_path, monke
 
     assert result.errors == 1
     assert result.error_paths == [(str(stuck), "Operation not permitted")]
+
+
+def test_a_dependency_tree_whose_project_cannot_be_rechecked_is_left_alone(tmp_path):
+    """An item that asked for a fresh activity check is refused when the check
+    cannot be answered — here a parent that is no repository at all."""
+    nm = tmp_path / "node_modules"
+    (nm / "dep").mkdir(parents=True)
+    items = [{"path": str(nm), "size_bytes": 10, "label": "node_modules",
+              "meta": {"mtime": os.path.getmtime(nm),
+                       "recheck_parent": str(tmp_path)}}]
+
+    with patch("cleaner.send2trash") as trash:
+        result = clean_items(items, permanent=False)
+
+    assert result.moved == 0
+    assert result.changed_paths == [str(nm)]
+    trash.assert_not_called()

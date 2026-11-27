@@ -30,10 +30,12 @@ def is_red_tagged(path: str) -> bool:
 
 
 def is_protected(path: str, root: str) -> bool:
-    """True if path, or any folder between it and root, is red-tagged."""
-    while path != root and path != os.path.dirname(path):
+    """True if path, any folder between it and root, or root itself is red-tagged."""
+    while path != os.path.dirname(path):
         if is_red_tagged(path):
             return True
+        if path == root:
+            return False
         path = os.path.dirname(path)
     return False
 
@@ -52,6 +54,10 @@ def scan() -> dict[str, Any]:
     visited: list[str] = []
     unreadable: list[OSError] = []
     tagged = recent = 0
+
+    if os.path.isdir(DOWNLOADS) and is_red_tagged(DOWNLOADS):
+        return make_result("Downloads", "safe", action="trash",
+                           suggestion="Kept everything: the Downloads folder itself is red-tagged")
 
     for current, dirnames, filenames in os.walk(DOWNLOADS, onerror=unreadable.append):
         visited.append(current)

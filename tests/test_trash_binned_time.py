@@ -167,3 +167,26 @@ def test_a_folder_that_cannot_be_fully_read_is_kept_and_counted(tmp_path, monkey
     finally:
         locked.chmod(0o755)
     assert nested.exists()
+
+
+def test_date_added_moves_forward_when_a_backdated_folder_is_binned(tmp_path):
+    """Probed 2026-11-27 on the boot volume and an external one: a rename into
+    another folder (which is what send2trash's trashItemAtURL does on one volume)
+    sets Date Added to the move, whatever the item's mtime says."""
+    import shutil
+
+    source = tmp_path / "old folder"
+    source.mkdir()
+    (source / "a.txt").write_text("x")
+    for p in (source / "a.txt", source):
+        _old(p)
+    (tmp_path / "trash").mkdir()
+    time.sleep(0.2)
+    moved_at = time.time()
+    binned = tmp_path / "trash" / source.name
+    shutil.move(str(source), str(binned))
+
+    assert base.added_time(str(binned)) >= moved_at - 0.05
+    assert not base.binned_before(str(binned), time.time() - 7 * DAY)
+    assert empty_trash(str(tmp_path / "trash"), older_than_days=7) == (0, 0, 0)
+    assert binned.exists()
