@@ -80,6 +80,17 @@ def binned_before(path: str, cutoff: float) -> bool:
     return not is_folder or newest_mtime(path, strict=True) < cutoff
 
 
+def binned_time_unknown(path: str) -> bool:
+    """True if there is no trustworthy record of when this Trash entry was binned.
+
+    Raises OSError if the entry cannot be read.
+    """
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) and info.st_nlink > 1:
+        return True
+    return added_time(path) is None
+
+
 def is_removable(path: str) -> bool:
     """True if this process could actually delete `path`.
 

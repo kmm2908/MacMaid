@@ -50,7 +50,7 @@ def test_scan_reports_one_item_per_trash_with_reclaimable_content(tmp_path, monk
     empty = tmp_path / "empty-trash"
     empty.mkdir()
 
-    monkeypatch.setattr(trash, "trash_dirs", lambda: [str(home), str(empty)])
+    monkeypatch.setattr(trash, "trash_dirs", lambda unchecked: [str(home), str(empty)])
     result = trash.scan()
 
     assert result["action"] == "empty-trash"
@@ -65,6 +65,6 @@ def test_scan_with_nothing_old_enough_returns_no_items(tmp_path, monkeypatch):
     recent = d / "recent.bin"
     recent.write_text("x" * 10)
     _age(recent, 1)
-    monkeypatch.setattr(trash, "trash_dirs", lambda: [str(d)])
+    monkeypatch.setattr(trash, "trash_dirs", lambda unchecked: [str(d)])
     result = trash.scan()
     assert result["items"] == []
