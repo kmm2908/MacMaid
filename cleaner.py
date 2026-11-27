@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from send2trash import send2trash
 
+from modules.base import newest_mtime
 from modules.downloads import is_protected
 
 DEFAULT_TRASH_RETENTION_DAYS = 7
@@ -123,7 +124,14 @@ def _unchanged_since_scan(item: dict) -> bool:
     package. It is a last line, not the guard — the guard is the dormancy rule
     in modules/dev_junk.py.
     """
-    seen: float | None = (item.get("meta") or {}).get("mtime")
+    meta = item.get("meta") or {}
+    # Mail and device backups cannot be rebuilt, so every file inside is checked.
+    if "tree_mtime" in meta:
+        try:
+            return abs(newest_mtime(item["path"]) - meta["tree_mtime"]) < 1e-6
+        except OSError:
+            return False
+    seen: float | None = meta.get("mtime")
     if seen is None:
         return True
     try:

@@ -28,7 +28,8 @@ def snapshots(tmp_path_factory):
     /api/quit cannot SIGINT the test run.
     """
     out = tmp_path_factory.mktemp("ui")
-    app = reviewer._make_app({"Large & Old Files": ITEMS, "Duplicates": ITEMS})
+    app = reviewer._make_app({"Large & Old Files": ITEMS, "Duplicates": ITEMS,
+                              "iOS Backups": ITEMS})
     server = make_server("localhost", 0, app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     pages = {}
@@ -65,6 +66,9 @@ def snapshots(tmp_path_factory):
             page.click(".tab-btn[data-tab='Duplicates']")
             page.wait_for_selector("text=Duplicate of")
             freeze(page, "duplicates")
+            page.click(".tab-btn[data-tab='iOS Backups']")
+            page.wait_for_selector("text=Last Backup")
+            freeze(page, "ios-backups")
             page.click("text=Done")
             page.wait_for_selector("text=server stopped")
             freeze(page, "stopped")
@@ -74,7 +78,8 @@ def snapshots(tmp_path_factory):
     return pages
 
 
-@pytest.mark.parametrize("state", ["loaded", "selected", "after-delete", "duplicates", "stopped"])
+@pytest.mark.parametrize("state", ["loaded", "selected", "after-delete", "duplicates",
+                                   "ios-backups", "stopped"])
 def test_review_page_is_readable(snapshots, state):
     assert contrast_check.check(snapshots[state]) == []
 

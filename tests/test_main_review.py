@@ -95,7 +95,7 @@ def test_unattended_email_includes_review_link_when_large_files_present(tmp_path
         main.unattended_mode(results, False, "test@example.com", no_email=False)
 
     assert len(sent_bodies) == 1
-    assert f"localhost:{main.reviewer.REVIEW_PORT}" in sent_bodies[0]
+    assert f"Review files: http://localhost:{main.reviewer.REVIEW_PORT}" in sent_bodies[0]
 
 
 def test_unattended_email_no_review_link_when_no_large_files(tmp_path, monkeypatch):
@@ -122,3 +122,39 @@ def test_unattended_dry_run_does_not_save_results(tmp_path, monkeypatch):
         main.unattended_mode(results, False, "", no_email=True, dry_run=True)
 
     assert not (tmp_path / "results.json").exists()
+
+
+def _result(category: str, risk: str, action: str = "trash", items: int = 1) -> dict:
+    return {"category": category, "risk": risk, "action": action,
+            "items": [{"path": f"/tmp/{category}", "label": category, "size_bytes": 1,
+                       "meta": {}}][:items]}
+
+
+def test_every_trashable_review_category_with_items_is_offered_for_review():
+    results = [
+        _result("Large & Old Files", "review"),
+        _result("Mail Store", "review"),
+        _result("iOS Backups", "review"),
+        _result("A Future Module", "review"),
+        _result("Duplicates", "review", items=0),
+        _result("Caches", "safe"),
+        _result("Login Items", "inform-only", action="none"),
+    ]
+    assert list(main._load_review_categories(results)) == [
+        "Large & Old Files", "Mail Store", "iOS Backups", "A Future Module"]
+
+
+@pytest.mark.parametrize("action", ["empty-trash", "none"])
+def test_review_category_the_page_cannot_act_on_correctly_is_not_offered(action):
+    # The page can only move to Trash, so any other action must stay out of it.
+    assert main._load_review_categories([_result("Large & Old Files", "review", action=action)]) == {}
+
+
+def test_real_mail_and_ios_scan_results_reach_the_review_page(tmp_path, monkeypatch):
+    for module, attr in ((main.mail, "MAIL_DIR"), (main.ios_backups, "BACKUP_DIR")):
+        folder = tmp_path / attr / "one"
+        folder.mkdir(parents=True)
+        (folder / "x.bin").write_bytes(b"x")
+        monkeypatch.setattr(module, attr, str(tmp_path / attr))
+    cats = main._load_review_categories([main.mail.scan(), main.ios_backups.scan()])
+    assert list(cats) == ["Mail Store", "iOS Backups"]

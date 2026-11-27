@@ -1,6 +1,8 @@
 import os
 import tempfile
 from unittest.mock import patch, MagicMock
+import pytest
+import cleaner
 from cleaner import clean_items, CleanResult
 
 def test_clean_items_moves_to_trash(tmp_path):
@@ -108,3 +110,29 @@ def test_a_changed_directory_is_named_not_just_counted(tmp_path):
         result = clean_items(items, permanent=False)
 
     assert result.changed_paths == [str(nm)]
+
+
+@pytest.mark.parametrize("module_name, attr", [("mail", "MAIL_DIR"), ("ios_backups", "BACKUP_DIR")])
+@pytest.mark.parametrize("change", [None, "rewrite deep file", "add deep file"])
+def test_mail_and_backup_folders_changed_since_the_scan_are_left_alone(
+        tmp_path, monkeypatch, module_name, attr, change):
+    import importlib
+    module = importlib.import_module(f"modules.{module_name}")
+    deep = tmp_path / "root" / "item" / "a" / "b"
+    deep.mkdir(parents=True)
+    old = deep / "old.bin"
+    old.write_bytes(b"x")
+    for path in [old, deep, deep.parent, deep.parent.parent, deep.parent.parent.parent]:
+        os.utime(path, (1_000_000, 1_000_000))
+    monkeypatch.setattr(module, attr, str(tmp_path / "root"))
+    items = module.scan()["items"]
+    if change == "rewrite deep file":
+        old.write_bytes(b"newer")
+    elif change == "add deep file":
+        (deep / "new.bin").write_bytes(b"y")
+
+    with patch("cleaner.send2trash") as trash:
+        result = cleaner.clean_items(items)
+
+    assert trash.called is (change is None)
+    assert result.changed_paths == ([] if change is None else [items[0]["path"]])

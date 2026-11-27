@@ -89,6 +89,7 @@ def _make_app(categories: dict[str, list[dict]]) -> Flask:
             "bytes_freed": result.bytes_freed,
             "error_paths": [(p, e) for p, e in result.error_paths if p not in not_found],
             "moved_paths": result.moved_paths,
+            "changed_paths": result.changed_paths,
             "not_found_paths": list(not_found),
         })
 
@@ -163,6 +164,7 @@ _PAGE = """<!DOCTYPE html>
   tr.sel:hover td{background:#254a68}
   .size{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow-wrap:normal}
   .path{color:var(--dim)}
+  #note:not(:empty){margin-bottom:10px}
   .pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
   .summary{margin-top:10px;min-height:36px;overflow-wrap:anywhere}
   .freed{color:var(--ok)}
@@ -191,6 +193,7 @@ _PAGE = """<!DOCTYPE html>
   <button class="affirm" onclick="done()">Done</button>
   <span id="count"></span>
 </div>
+<div id="note"></div>
 </div>
 <table>
   <thead id="thead"><tr></tr></thead>
@@ -205,7 +208,21 @@ _PAGE = """<!DOCTYPE html>
 <div id="toast"></div>
 <script>
 var tabs={},currentTab=null,pathMap={},bytesFreed=0,PAGE=200;
+var BASE_COLS=[
+  {key:'label',label:'Name',sort:true},
+  {key:'path',label:'Full Path',sort:true,cls:'path'},
+  {key:'size_bytes',label:'Size',sort:true,cls:'size'}
+];
+var NOTES={
+  'Mail Store':'This is your whole mail folder. Some of its mail may exist nowhere else.',
+  'iOS Backups':'Remove old devices or duplicate backups only.'
+};
+var CONFIRMS={
+  'Mail Store':'This is your WHOLE mail folder (~/Library/Mail). Mail kept only on this Mac would be lost.',
+  'iOS Backups':'A device backup cannot be recreated once the device is gone or has changed.'
+};
 var COLS={
+  'iOS Backups':BASE_COLS.concat([{key:'last_backup',label:'Last Backup',sort:true}]),
   'Large & Old Files':[
     {key:'label',label:'Name',sort:true},
     {key:'path',label:'Full Path',sort:true,cls:'path'},
@@ -220,7 +237,7 @@ var COLS={
     {key:'duplicate_of',label:'Duplicate of',sort:false}
   ]
 };
-function cols(){return COLS[currentTab]||COLS['Large & Old Files'];}
+function cols(){return COLS[currentTab]||BASE_COLS;}
 function makeTab(){return{allFiles:[],filtered:[],selected:new Set(),page:0,sortKey:'size_bytes',sortAsc:false,loaded:false};}
 function st(){return tabs[currentTab];}
 function setStickyOffset(){var h=document.getElementById('sticky').offsetHeight;document.documentElement.style.setProperty('--thead-top',h+'px');}
@@ -230,6 +247,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function val(f,k){
   if(k==='age_days')return f.meta&&f.meta.age_days!=null?f.meta.age_days:0;
   if(k==='last_modified')return f.meta&&f.meta.last_modified?f.meta.last_modified:'';
+  if(k==='last_backup')return f.meta&&f.meta.last_backup?f.meta.last_backup:'';
   if(k==='duplicate_of')return f.meta&&f.meta.duplicate_of?f.meta.duplicate_of:'';
   return f[k]!=null?f[k]:'';
 }
@@ -265,6 +283,7 @@ function renderTabBar(counts){
 }
 async function switchTab(name){
   currentTab=name;
+  document.getElementById('note').textContent=NOTES[name]||'';
   document.getElementById('filter').value='';
   renderTabBar();
   if(!st().loaded){
@@ -354,6 +373,7 @@ async function moveToTrash(){
   var shown=new Set(s.filtered.map(function(f){return f.path;}));
   var hidden=paths.filter(function(p){return!shown.has(p);}).length;
   var warn=hidden?'\\n\\n'+'Hidden by the current filter: '+hidden+'.':'';
+  if(CONFIRMS[currentTab])warn+='\\n\\n'+CONFIRMS[currentTab]+' The nightly clean can delete it permanently from the Trash, as soon as its next run.';
   if(!confirm('Move '+paths.length+' file(s) to Trash?'+warn))return;
   var r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:paths})});
   var res=await r.json();
@@ -369,6 +389,8 @@ async function moveToTrash(){
   var msg='';
   if(res.bytes_freed>0)msg+='<span class="freed">Freed '+fmt(bytesFreed)+' total this session.</span> ';
   if((res.not_found_paths||[]).length>0)msg+='<span class="err">'+(res.not_found_paths.length)+' file(s) no longer on disk \u2014 removed from list.</span> ';
+  var changed=(res.changed_paths||[]).length;
+  if(changed)msg+='<span class="err">'+changed+' item(s) changed since the scan \\u2014 left alone. Run a new scan to review them.</span> ';
   if(res.errors>0)msg+='<span class="err">'+res.errors+' error(s): '+res.error_paths.map(function(e){return esc(e[0]+' ('+e[1]+')');}).join(', ')+'</span>';
   document.getElementById('summary').innerHTML=msg||'Done.';
   applyFilter();

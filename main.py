@@ -223,7 +223,7 @@ def _report_html(report_text: str, review_url: str | None = None) -> str:
             f'<hr style="margin:24px 0;border:0;border-top:1px solid #3d4a5a">'
             f'<p><a class="btn" role="button" href="{review_url}" style="display:inline-block;padding:12px 24px;'
             f'background:#12558c;color:#ffffff;border:2px solid #8fd3ff;text-decoration:none;border-radius:12px;'
-            f'font-weight:bold">&#x1f9f9; Review Large Files &rarr;</a></p>'
+            f'font-weight:bold">&#x1f9f9; Review Files &rarr;</a></p>'
             f'<p>Opens on this Mac while MacMaid review server is running.</p>'
         )
     return (
@@ -262,24 +262,20 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
         if _load_review_categories(results):
             _start_review_server()
             review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
-            report_text += f"\n\n---\nReview large files: {review_url}"
+            report_text += f"\n\n---\nReview files: {review_url}"
         html_body = _report_html(report_text, review_url)
         prefix = "[DRY RUN] " if dry_run else ""
         subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
         emailer.send_report(subject, report_text, to_email, html_body=html_body)
 
 
-_REVIEW_CATEGORIES = ("Large & Old Files", "Duplicates")
-
-
 def _load_review_categories(results: list[dict]) -> dict[str, list[dict]]:
-    """Extract reviewable categories (with items) from scan results."""
-    cats = {}
-    for name in _REVIEW_CATEGORIES:
-        r = next((r for r in results if r.get("category") == name and r.get("items")), None)
-        if r:
-            cats[name] = r["items"]
-    return cats
+    """Every review-risk category with items. The page can only move to Trash."""
+    return {
+        r["category"]: r["items"]
+        for r in results
+        if r.get("risk") == "review" and r.get("action") == "trash" and r.get("items")
+    }
 
 
 def main() -> None:
@@ -344,7 +340,7 @@ def main() -> None:
         results = json.loads(RESULTS_PATH.read_text())
         cats = _load_review_categories(results)
         if not cats:
-            console.print("[yellow]No large files found in last scan.[/yellow]")
+            console.print("[yellow]Nothing to review in the last scan.[/yellow]")
             sys.exit(0)
         reviewer.start(cats)
         sys.exit(0)

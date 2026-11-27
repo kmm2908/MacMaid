@@ -14,6 +14,7 @@ def test_scan_finds_mail_cache(tmp_path):
     assert result["category"] == "Mail Store"
     assert result["risk"] == "review"
     assert result["total_size_bytes"] >= 5000
+    assert "only on this Mac" in result["suggestion"]
 
 def test_scan_no_mail_dir(tmp_path):
     with patch("modules.mail.MAIL_DIR", str(tmp_path / "NoMail")):

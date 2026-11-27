@@ -1,7 +1,7 @@
 import os
 import plistlib
 from datetime import datetime
-from modules.base import make_result, make_item
+from modules.base import make_result, make_item, newest_mtime
 
 BACKUP_DIR = os.path.expanduser("~/Library/Application Support/MobileSync/Backup")
 
@@ -43,6 +43,10 @@ def scan() -> dict:
         full = os.path.join(BACKUP_DIR, name)
         if not os.path.isdir(full):
             continue
+        try:
+            seen = newest_mtime(full)  # before sizing, as in mail.py
+        except OSError:
+            continue
         size = _dir_size(full)
         info = _read_info(full)
         device = info.get("Display Name") or info.get("Device Name") or name[:8]
@@ -56,7 +60,8 @@ def scan() -> dict:
             except OSError:
                 date_str = "unknown"
         label = f"{device} — last backup {date_str}"
-        items.append(make_item(full, size, label, meta={"last_backup": date_str, "device": device}))
+        items.append(make_item(full, size, label, meta={"last_backup": date_str, "device": device,
+                                                  "tree_mtime": seen}))
 
     items.sort(key=lambda x: x["meta"].get("last_backup", ""), reverse=True)
     total = sum(i["size_bytes"] for i in items)

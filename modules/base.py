@@ -36,6 +36,18 @@ def is_removable(path: str) -> bool:
     return os.access(os.path.dirname(path), os.W_OK | os.X_OK)
 
 
+def newest_mtime(path: str) -> float:
+    """Latest modification time of a folder or anything inside it."""
+    newest = os.lstat(path).st_mtime
+    for dirpath, dirnames, filenames in os.walk(path):
+        for name in dirnames + filenames:
+            try:
+                newest = max(newest, os.lstat(os.path.join(dirpath, name)).st_mtime)
+            except OSError:
+                pass
+    return newest
+
+
 def make_item(path: str, size_bytes: int, label: str, meta: dict | None = None) -> dict:
     return {
         "path": path,

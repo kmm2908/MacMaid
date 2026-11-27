@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
@@ -69,3 +70,84 @@ def test_trashing_a_shared_file_updates_the_unopened_tab_and_saved_results(tmp_p
         server.shutdown()
 
     assert [r["items"] for r in json.loads(results.read_text())] == [[], []]
+
+
+def test_mail_and_ios_tabs_carry_their_caution_and_own_columns() -> None:
+    backup = {"path": "/nowhere/backup", "label": "Old Phone", "size_bytes": 10,
+              "meta": {"last_backup": "2025-03-04", "device": "Old Phone"}}
+    mail = {"path": "/nowhere/Mail", "label": "Mail Store (1 MB)", "size_bytes": 10, "meta": {}}
+    app = reviewer._make_app({"Duplicates": ITEMS, "Mail Store": [mail], "iOS Backups": [backup]})
+    server = make_server("localhost", 0, app, threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    seen: dict[str, tuple[str, list[str], str]] = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.goto(f"http://localhost:{server.server_port}/")
+            for tab, first_path in (("Mail Store", mail["path"]), ("iOS Backups", backup["path"]),
+                                    ("Duplicates", ITEMS[0]["path"])):
+                page.click(f'.tab-btn[data-tab="{tab}"]')
+                # The tab lights up before its rows arrive, so wait for its own row.
+                page.wait_for_selector(f'#tbody tr[data-path="{first_path}"]')
+                seen[tab] = (page.inner_text("#note"),
+                             [h.strip(" ▲▼") for h in
+                              page.locator("#thead th").all_inner_texts()[1:-1]],
+                             page.inner_text("#tbody tr"))
+            browser.close()
+    finally:
+        server.shutdown()
+
+    assert "whole mail folder" in seen["Mail Store"][0]
+    assert seen["Mail Store"][1] == ["Name", "Full Path", "Size"]
+    assert "old devices" in seen["iOS Backups"][0]
+    assert seen["iOS Backups"][1] == ["Name", "Full Path", "Size", "Last Backup"]
+    assert "2025-03-04" in seen["iOS Backups"][2]
+    assert seen["Duplicates"][0] == ""
+
+
+@pytest.mark.parametrize("tab, words", [
+    ("Mail Store", ["WHOLE mail folder", "only on this Mac", "delete it permanently"]),
+    ("iOS Backups", ["cannot be recreated", "delete it permanently"]),
+])
+def test_irreplaceable_categories_spell_out_the_loss_before_trashing(
+        tab: str, words: list[str]) -> None:
+    item = {"path": "/nowhere/folder", "label": "folder", "size_bytes": 10, "meta": {}}
+    server = make_server("localhost", 0, reviewer._make_app({tab: [item]}), threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    messages: list[str] = []
+    try:
+        with patch("reviewer.cleaner_mod.clean_items") as clean, sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.on("dialog", lambda d: (messages.append(d.message), d.dismiss()))
+            page.goto(f"http://localhost:{server.server_port}/")
+            page.check("#tbody tr:first-child input")
+            page.click("#trashBtn")
+            browser.close()
+    finally:
+        server.shutdown()
+
+    assert not clean.called
+    assert len(messages) == 1
+    assert [w for w in words if w not in messages[0]] == []
+
+
+def test_an_item_left_alone_because_it_changed_is_said_so() -> None:
+    server = make_server("localhost", 0, reviewer._make_app({"Mail Store": ITEMS[:1]}), threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    left = cleaner.CleanResult(skipped=1, changed_paths=[ITEMS[0]["path"]])
+    try:
+        with patch("reviewer.cleaner_mod.clean_items", return_value=left), \
+             patch("reviewer._persist_results"), sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome")
+            page = browser.new_page()
+            page.on("dialog", lambda d: d.accept())
+            page.goto(f"http://localhost:{server.server_port}/")
+            page.check("#tbody tr:first-child input")
+            page.click("#trashBtn")
+            expect(page.locator("#summary")).to_contain_text("changed since the scan")
+            expect(page.locator("#tbody tr")).to_have_count(1)
+            browser.close()
+    finally:
+        server.shutdown()
