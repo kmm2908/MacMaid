@@ -2,8 +2,10 @@
 import json
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import config as cfg
 import emailer
@@ -52,21 +54,72 @@ def should_alert(current: str, state: dict, now: datetime, realert_hours: float)
     return now - alerted_at >= timedelta(hours=realert_hours)
 
 
-def _dir_bytes(path: Path) -> int | None:
-    """None when du could not read everything: a partial total would understate it."""
+class Measure(NamedTuple):
+    bytes: int | None
+    complete: bool = True
+    blocked: bool = False
+    timed_out: bool = False
+
+
+def _measure(path: Path) -> Measure:
+    """du's total. When it could not read everything the total is only a minimum."""
     try:
         done = subprocess.run(["du", "-sk", str(path)], capture_output=True, text=True,
                               timeout=DU_TIMEOUT_SECONDS, check=False)
-        return int(done.stdout.split()[0]) * 1024 if done.returncode == 0 else None
-    except (subprocess.TimeoutExpired, OSError, ValueError, IndexError):
-        return None
+    except subprocess.TimeoutExpired:
+        return Measure(None, complete=False, timed_out=True)
+    except (OSError, ValueError):
+        return Measure(None, complete=False)
+    # macOS privacy protection (no Full Disk Access) reads differently from file permissions.
+    blocked = "Operation not permitted" in done.stderr
+    try:
+        size = int(done.stdout.split()[0]) * 1024
+    except (ValueError, IndexError):
+        size = None
+    return Measure(size, complete=done.returncode == 0 and size is not None, blocked=blocked)
 
 
-def top_users() -> list[tuple[str, int | None]]:
-    sized = [(name, _dir_bytes(path)) for name, path in SPACE_USERS if path.exists()]
+def _size_text(measure: Measure) -> str:
+    if measure.complete:
+        return _gb(measure.bytes)
+    # A minimum that would print as 0.0 GB says nothing about the folder.
+    if measure.bytes is not None and measure.bytes >= GB / 10:
+        return f"at least {_gb(measure.bytes)} (part of it could not be read)"
+    if measure.timed_out:
+        return "could not be measured (took too long)"
+    if measure.blocked:
+        return "could not be measured (macOS blocked access)"
+    return "could not be measured"
+
+
+def top_users() -> list[tuple[str, Measure]]:
+    sized = [(name, _measure(path)) for name, path in SPACE_USERS if path.exists()]
     trash = [u for u in sized if u[0] == "Trash"]
-    rest = sorted((u for u in sized if u[0] != "Trash"), key=lambda u: u[1] or -1, reverse=True)
+    rest = sorted((u for u in sized if u[0] != "Trash"),
+                  key=lambda u: -1 if u[1].bytes is None else u[1].bytes, reverse=True)
     return trash + rest
+
+
+def local_snapshots() -> int | None:
+    """How many local Time Machine snapshots the main disk holds; None if unknown."""
+    try:
+        done = subprocess.run(["tmutil", "listlocalsnapshots", "/"], capture_output=True, text=True,
+                              timeout=30, check=False)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if done.returncode != 0:
+        return None
+    return sum(line.startswith("com.apple.TimeMachine.") for line in done.stdout.splitlines())
+
+
+def _snapshot_lines() -> list[str]:
+    count = local_snapshots()
+    if count is None:
+        return ["", "Local Time Machine snapshots: could not be checked."]
+    if not count:
+        return []
+    return ["", f"There are {count} local Time Machine snapshot(s) on this disk. Deleting files may not free "
+                "their space until those snapshots are thinned."]
 
 
 def notify(title: str, message: str) -> None:
@@ -110,8 +163,13 @@ def _alert(current: str, free: int) -> bool:
     subject = f"MacMaid: only {_gb(free)} free on the main disk"
     lines = [f"Free space on the main disk: {_gb(free)}.", "",
              "Sizes of selected common folders (Trash first: it holds files you have already deleted once):"]
-    lines += [f"  {name}: {_gb(size) if size is not None else 'could not be measured'}"
-              for name, size in users]
+    lines += [f"  {name}: {_size_text(measure)}" for name, measure in users]
+    if any(measure.blocked for _, measure in users):
+        lines += ["", "macOS blocks this hourly check from some folders. You can leave it that way. Giving "
+                      "Full Disk Access (System Settings > Privacy & Security) to the Python below would let it "
+                      "measure them, but every other script run by that Python could then read your Mail, Trash "
+                      "and backups too:", f"  {sys.executable}"]
+    lines += _snapshot_lines()
     lines += ["", "Below about 10 GB macOS starts force-quitting apps to reclaim space."]
     kind = {"urgent": todo} if current == "urgent" else {"action": todo}
     return emailer.send_report(subject, "\n".join(lines), cfg.get("email_report_to") or "", **kind)

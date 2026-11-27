@@ -1,12 +1,22 @@
 import json
+import subprocess
 from datetime import datetime, timedelta
 from unittest.mock import patch
+
+import pytest
 
 import storage_watch as sw
 from scheduler import build_storage_plist
 
 GB = 1_000_000_000
 NOW = datetime(2026, 11, 5, 12, 0)
+REAL_LOCAL_SNAPSHOTS = sw.local_snapshots
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tmutil():
+    with patch.object(sw, "local_snapshots", return_value=0):
+        yield
 
 
 def test_level_is_ok_at_or_above_the_warning_line():
@@ -64,7 +74,7 @@ def test_top_users_puts_trash_first_then_largest(tmp_path):
     with patch.object(sw, "SPACE_USERS", users_cfg):
         users = sw.top_users()
     assert [name for name, _ in users] == ["Trash", "Caches", "Downloads"]
-    assert dict(users)["Caches"] >= 300_000
+    assert dict(users)["Caches"].bytes >= 300_000
 
 
 def _run_check(tmp_path, free, state=None):
@@ -74,7 +84,8 @@ def _run_check(tmp_path, free, state=None):
     sent, notes = [], []
     with patch.object(sw, "STATE_PATH", state_path), \
          patch.object(sw, "free_bytes", return_value=free), \
-         patch.object(sw, "top_users", return_value=[("Trash", 72 * GB), ("Downloads", 5 * GB)]), \
+         patch.object(sw, "top_users", return_value=[("Trash", sw.Measure(72 * GB)), ("Downloads", sw.Measure(5 * GB))]), \
+         patch.object(sw, "local_snapshots", return_value=0), \
          patch.object(sw.emailer, "send_report", side_effect=lambda *a, **k: sent.append((a, k)) or True), \
          patch.object(sw, "notify", side_effect=lambda t, m: notes.append((t, m))), \
          patch.object(sw.cfg, "get", side_effect=lambda k: {"storage_warn_gb": 25, "storage_urgent_gb": 10,
@@ -160,7 +171,7 @@ def test_notification_goes_out_before_folders_are_measured():
 
 def test_alert_wording_does_not_tell_him_to_clear_a_folder():
     sent = []
-    with patch.object(sw, "top_users", return_value=[("Documents", 40 * GB)]), \
+    with patch.object(sw, "top_users", return_value=[("Documents", sw.Measure(40 * GB))]), \
          patch.object(sw.emailer, "send_report", side_effect=lambda *a, **k: sent.append((a, k)) or True), \
          patch.object(sw, "notify"):
         sw._alert("urgent", 4 * GB)
@@ -206,17 +217,102 @@ def test_unreadable_folder_is_reported_unknown_not_zero(tmp_path):
     (locked / "inner" / "blob").write_bytes(b"x" * 50_000)
     (locked / "inner").chmod(0)
     try:
-        assert sw._dir_bytes(locked) is None
+        measure = sw._measure(locked)
+        assert not measure.complete
+        assert sw._size_text(measure) == "could not be measured"
     finally:
         (locked / "inner").chmod(0o755)
 
 
 def test_alert_body_says_when_a_folder_could_not_be_measured():
     sent = []
-    with patch.object(sw, "top_users", return_value=[("Trash", None), ("Caches", 4 * GB)]), \
+    with patch.object(sw, "top_users", return_value=[("Trash", sw.Measure(None, complete=False)), ("Caches", sw.Measure(4 * GB))]), \
          patch.object(sw.emailer, "send_report", side_effect=lambda *a, **k: sent.append(a) or True), \
          patch.object(sw, "notify"):
         sw._alert("warn", 20 * GB)
     body = sent[0][1]
     assert "Trash: could not be measured" in body
     assert "Trash: 0.0 GB" not in body
+
+
+def _du(returncode, stdout, stderr=""):
+    return patch.object(sw.subprocess, "run",
+                        return_value=subprocess.CompletedProcess([], returncode, stdout, stderr))
+
+
+def _body(users, snapshots=0):
+    sent = []
+    with patch.object(sw, "top_users", return_value=users), \
+         patch.object(sw, "local_snapshots", return_value=snapshots), \
+         patch.object(sw.emailer, "send_report", side_effect=lambda *a, **k: sent.append(a) or True), \
+         patch.object(sw, "notify"):
+        sw._alert("warn", 20 * GB)
+    return sent[0][1]
+
+
+def test_partly_readable_folder_reports_what_it_did_read_as_a_minimum(tmp_path):
+    err = "du: /x/com.apple.HomeKit: Operation not permitted\n"
+    with _du(1, "4048224\t/x\n", err):
+        measure = sw._measure(tmp_path)
+    assert measure == sw.Measure(4048224 * 1024, complete=False, blocked=True)
+    assert sw._size_text(measure) == "at least 4.1 GB (part of it could not be read)"
+
+
+def test_folder_macos_refuses_outright_says_it_was_blocked(tmp_path):
+    with _du(1, "", "du: /x: Operation not permitted\n"):
+        measure = sw._measure(tmp_path)
+    assert measure.bytes is None and measure.blocked
+    assert sw._size_text(measure) == "could not be measured (macOS blocked access)"
+
+
+def test_folder_that_takes_too_long_says_so(tmp_path):
+    with patch.object(sw.subprocess, "run", side_effect=subprocess.TimeoutExpired("du", 120)):
+        measure = sw._measure(tmp_path)
+    assert sw._size_text(measure) == "could not be measured (took too long)"
+
+
+def test_partial_folder_is_ranked_by_its_minimum(tmp_path):
+    sizes = {"a": sw.Measure(None, complete=False), "b": sw.Measure(2 * GB),
+             "c": sw.Measure(9 * GB, complete=False)}
+    for name in sizes:
+        (tmp_path / name).mkdir()
+    with patch.object(sw, "SPACE_USERS", [(n, tmp_path / n) for n in sizes]), \
+         patch.object(sw, "_measure", side_effect=lambda p: sizes[p.name]):
+        assert [name for name, _ in sw.top_users()] == ["c", "b", "a"]
+
+
+def test_blocked_folder_adds_the_full_disk_access_explanation():
+    body = _body([("Mail", sw.Measure(None, complete=False, blocked=True))])
+    assert "Full Disk Access" in body and sw.sys.executable in body
+
+
+def test_no_full_disk_access_note_when_nothing_was_blocked():
+    assert "Full Disk Access" not in _body([("Mail", sw.Measure(GB))])
+
+
+def test_alert_mentions_local_time_machine_snapshots():
+    body = _body([], snapshots=2)
+    assert "2 local Time Machine snapshot(s)" in body
+    assert "may not free" in body
+
+
+def test_alert_is_silent_about_snapshots_when_there_are_none():
+    assert "snapshot" not in _body([], snapshots=0)
+
+
+def test_alert_says_when_snapshots_could_not_be_checked():
+    assert "snapshots: could not be checked" in _body([], snapshots=None)
+
+
+def test_local_snapshots_counts_only_snapshot_lines():
+    out = ("Snapshots for disk /:\ncom.apple.TimeMachine.2026-11-25-135543.local\n"
+           "com.apple.TimeMachine.2026-11-26-195912.local\n")
+    with _du(0, out):
+        assert REAL_LOCAL_SNAPSHOTS() == 2
+
+
+def test_local_snapshots_is_unknown_when_tmutil_fails():
+    with _du(1, "", "boom"):
+        assert REAL_LOCAL_SNAPSHOTS() is None
+    with patch.object(sw.subprocess, "run", side_effect=OSError):
+        assert REAL_LOCAL_SNAPSHOTS() is None
