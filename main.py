@@ -348,10 +348,15 @@ def main() -> None:
     parser.add_argument("--review", action="store_true", help="Open browser review UI for last scan results")
     parser.add_argument("--storage-check", action="store_true", help="Alert if the main disk is low on space")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--storage-probe", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.storage_check:
         storage_watch.check()
+        return
+
+    if args.storage_probe:
+        storage_watch.probe()
         return
 
     if args.schedule:

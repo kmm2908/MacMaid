@@ -4,7 +4,7 @@ import scheduler
 
 def test_install_calls_url_handler_setup():
     setup_calls = []
-    with patch("scheduler.url_handler") as mock_uh, \
+    with patch("scheduler.url_handler") as mock_uh, patch("scheduler.fda_launcher"), \
          patch("builtins.open", MagicMock()), \
          patch("subprocess.run", MagicMock()):
         mock_uh.setup = lambda *a: setup_calls.append(a)
@@ -21,6 +21,7 @@ def test_install_writes_and_loads_both_agents(tmp_path):
     with patch.object(scheduler, "PLIST_PATH", str(nightly)), \
          patch.object(scheduler, "STORAGE_PLIST_PATH", str(storage)), \
          patch("scheduler.url_handler"), \
+         patch("scheduler.fda_launcher.build", return_value=None), \
          patch("scheduler.subprocess.run") as run:
         assert scheduler.install("02:00")
     assert "--storage-check" in storage.read_text()

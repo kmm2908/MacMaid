@@ -9,6 +9,7 @@ from typing import NamedTuple
 
 import config as cfg
 import emailer
+import fda_launcher
 
 GB = 1_000_000_000
 STATE_PATH = Path.home() / "Library" / "Logs" / "mac-maid-storage-state.json"
@@ -162,6 +163,21 @@ def _setting(key: str) -> float:
     return float(usable_setting(key, cfg.get(key)))
 
 
+def _access_lines() -> list[str]:
+    if fda_launcher.EXECUTABLE.exists():
+        return [f"To let it measure them, give Full Disk Access (System Settings > Privacy & Security) to "
+                f"\"MacMaid Storage Check\" in {fda_launcher.APP_DIR.parent}. That app can only run this check."]
+    return ["Giving Full Disk Access (System Settings > Privacy & Security) to the Python below would let it "
+            "measure them, but every other script run by that Python could then read your Mail, Trash "
+            "and backups too:", f"  {sys.executable}"]
+
+
+def probe() -> None:
+    """Print what this run can measure: proof, from launchd, that the access works."""
+    for name, measure in top_users():
+        print(f"{name}: {_size_text(measure)}")
+
+
 def _gb(n: float) -> str:
     return f"{n / GB:.1f} GB"
 
@@ -175,10 +191,7 @@ def _alert(current: str, free: int) -> bool:
              "Sizes of selected common folders (Trash first: it holds files you have already deleted once):"]
     lines += [f"  {name}: {_size_text(measure)}" for name, measure in users]
     if any(measure.blocked for _, measure in users):
-        lines += ["", "macOS blocks this hourly check from some folders. You can leave it that way. Giving "
-                      "Full Disk Access (System Settings > Privacy & Security) to the Python below would let it "
-                      "measure them, but every other script run by that Python could then read your Mail, Trash "
-                      "and backups too:", f"  {sys.executable}"]
+        lines += ["", "macOS blocks this hourly check from some folders. You can leave it that way.", *_access_lines()]
     lines += _snapshot_lines()
     lines += ["", "Below about 10 GB macOS starts force-quitting apps to reclaim space."]
     kind = {"urgent": todo} if current == "urgent" else {"action": todo}

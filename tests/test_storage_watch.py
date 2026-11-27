@@ -281,8 +281,9 @@ def test_partial_folder_is_ranked_by_its_minimum(tmp_path):
         assert [name for name, _ in sw.top_users()] == ["c", "b", "a"]
 
 
-def test_blocked_folder_adds_the_full_disk_access_explanation():
-    body = _body([("Mail", sw.Measure(None, complete=False, blocked=True))])
+def test_blocked_folder_adds_the_full_disk_access_explanation(tmp_path):
+    with patch.object(sw.fda_launcher, "EXECUTABLE", tmp_path / "absent"):
+        body = _body([("Mail", sw.Measure(None, complete=False, blocked=True))])
     assert "Full Disk Access" in body and sw.sys.executable in body
 
 

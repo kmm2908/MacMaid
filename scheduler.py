@@ -2,7 +2,9 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from xml.sax.saxutils import escape
 
+import fda_launcher
 import url_handler
 
 PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/com.macmaid.nightly.plist")
@@ -63,7 +65,10 @@ def build_plist(time_str: str) -> str:
 </plist>"""
 
 
-def build_storage_plist() -> str:
+def build_storage_plist(program: list[str] | None = None) -> str:
+    """`program` is the storage-check app when it could be built; Python runs the check otherwise."""
+    program = program or [_resolve_python(), SCRIPT_PATH, "--storage-check"]
+    arguments = "\n".join(f"        <string>{escape(arg)}</string>" for arg in program)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -73,9 +78,7 @@ def build_storage_plist() -> str:
     <string>com.macmaid.storage</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{_resolve_python()}</string>
-        <string>{SCRIPT_PATH}</string>
-        <string>--storage-check</string>
+{arguments}
     </array>
     <key>StartInterval</key>
     <integer>{STORAGE_INTERVAL_SECONDS}</integer>
@@ -100,7 +103,8 @@ def _load_fresh(path: str, plist: str) -> None:
 def install(time_str: str) -> bool:
     try:
         _load_fresh(PLIST_PATH, build_plist(time_str))
-        _load_fresh(STORAGE_PLIST_PATH, build_storage_plist())
+        launcher = fda_launcher.build(_resolve_python(), SCRIPT_PATH)
+        _load_fresh(STORAGE_PLIST_PATH, build_storage_plist([str(launcher)] if launcher else None))
         url_handler.setup(_resolve_python(), SCRIPT_PATH)
         return True
     except Exception:
@@ -118,6 +122,7 @@ def uninstall() -> bool:
         except OSError:
             return False
         found = True
+    fda_launcher.remove()
     return found
 
 

@@ -97,9 +97,12 @@ the Trash first and then the largest folders; below `storage_urgent_gb` the emai
 urgent. It alerts once per level, again sooner only if things get worse, and repeats after
 `storage_realert_hours`. State lives in `~/Library/Logs/mac-maid-storage-state.json`.
 
-The scheduled check cannot read the Trash, Mail or iPhone backups unless the Python it runs under
-has Full Disk Access (System Settings > Privacy & Security); the email names that Python when it
-was blocked. Granting it is a security choice: every script run by that Python gets the same access. A folder it could only partly read shows as "at least N GB". The email also says how
+The scheduled check runs through a small app, `~/.local/share/MacMaid Storage Check.app`, which
+`--schedule` builds. It cannot read the Trash, Mail or iPhone backups until that app has Full Disk
+Access (System Settings > Privacy & Security > Full Disk Access, click +, press Cmd+Shift+G and paste
+the path). The app can only run this check, so the access does not extend to other Python scripts;
+anything that can edit MacMaid's own files could still use it. `--unschedule` moves the app to the
+Trash. A folder it could only partly read shows as "at least N GB". The email also says how
 many local Time Machine snapshots there are, since they can hold on to the space of deleted files.
 
 ### View run history
