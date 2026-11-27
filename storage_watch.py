@@ -123,11 +123,18 @@ def _snapshot_lines() -> list[str]:
 
 
 def notify(title: str, message: str) -> None:
-    script = f"display notification {json.dumps(message)} with title {json.dumps(title)}"
+    # AppleScript cannot read \uXXXX escapes, so non-ASCII text has to go in as it is.
+    text, heading = (json.dumps(value, ensure_ascii=False) for value in (message, title))
+    script = f"display notification {text} with title {heading}"
+    # A missing banner must not stop the email; it is logged so it is not lost silently.
     try:
-        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10, check=False)
-    except (subprocess.TimeoutExpired, OSError):
-        pass  # the email still goes; a missing banner must not stop it
+        done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, errors="replace",
+                              timeout=10, check=False)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"storage_watch: notification failed: {exc}")
+        return
+    if done.returncode != 0:
+        print(f"storage_watch: notification failed: {done.stderr.strip()}")
 
 
 def _load_state() -> dict:

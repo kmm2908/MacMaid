@@ -316,3 +316,19 @@ def test_local_snapshots_is_unknown_when_tmutil_fails():
         assert REAL_LOCAL_SNAPSHOTS() is None
     with patch.object(sw.subprocess, "run", side_effect=OSError):
         assert REAL_LOCAL_SNAPSHOTS() is None
+
+
+def test_a_notification_macos_refuses_is_written_to_the_log(capsys):
+    with _du(1, "", "17:18: syntax error"):
+        sw.notify("title", "message")
+    assert "notification failed: 17:18: syntax error" in capsys.readouterr().out
+
+
+def test_a_refusal_that_is_not_valid_text_does_not_stop_the_alert(tmp_path, monkeypatch, capsys):
+    fake = tmp_path / "osascript"
+    fake.write_text("#!/bin/sh\nprintf '\\377 refused' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    sw.notify("title", "message")
+    assert "refused" in capsys.readouterr().out
+
