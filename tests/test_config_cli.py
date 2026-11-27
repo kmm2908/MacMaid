@@ -51,6 +51,7 @@ def test_get_prints_one_effective_value(cfg_file, capsys):
     ("email_report_to", ["a@example.com"], "a@example.com"),
     ("email_report_to", [""], ""),
     ("scan_paths", ["~/Downloads", "/Volumes/Ext Data"], ["~/Downloads", "/Volumes/Ext Data"]),
+    ("dev_scan_paths", ["~", "~root/Projects"], ["~", "~root/Projects"]),
 ])
 def test_set_saves_typed_value(cfg_file, key, values, expected):
     assert run("set", key, *values) == 0
@@ -186,3 +187,70 @@ def test_main_routes_config_without_scanning(cfg_file):
     assert exc.value.code == 0
     scan.assert_not_called()
     assert saved(cfg_file) == {"modules": {"thermal": False}}
+
+
+@pytest.mark.parametrize("argv", [
+    ["set", "old_file_days", "90"],
+    ["set", "modules.caches", "false"],
+    ["unset", "log_retention_days"],
+])
+def test_inverted_thresholds_in_the_file_block_unrelated_changes(cfg_file, argv, capsys):
+    content = '{"storage_warn_gb": 5, "storage_urgent_gb": 30, "log_retention_days": 3}'
+    cfg_file.write_text(content)
+    assert run(*argv) == 1
+    assert cfg_file.read_text() == content
+    assert "storage_urgent_gb (30) cannot be above storage_warn_gb (5)" in capsys.readouterr().err
+    assert run("set", "storage_warn_gb", "40") == 0
+    assert run(*argv) == 0
+
+
+@pytest.mark.parametrize("argv", [
+    ["unset", "permanent_delete"],
+    ["set", "permanent_delete", "false"],
+])
+def test_inverted_thresholds_do_not_block_clearing_a_bad_value(cfg_file, argv):
+    cfg_file.write_text(json.dumps(
+        {"permanent_delete": "false", "storage_warn_gb": 5, "storage_urgent_gb": 30}))
+    assert run(*argv) == 0
+    assert saved(cfg_file).get("permanent_delete", False) is False
+
+
+@pytest.mark.parametrize("content,key,value", [
+    ('{"storage_warn_gb": "x", "storage_urgent_gb": 30}', "storage_warn_gb", "40"),
+    ('{"storage_warn_gb": 5, "storage_urgent_gb": "x"}', "storage_urgent_gb", "3"),
+])
+def test_bad_threshold_needs_set_when_the_default_would_invert(cfg_file, content, key, value,
+                                                               capsys):
+    cfg_file.write_text(content)
+    assert run("unset", key) == 1
+    assert cfg_file.read_text() == content
+    assert f"Give {key} a value with `config set` instead." in capsys.readouterr().err
+    assert run("set", key, value) == 0
+
+
+@pytest.mark.parametrize("path", ["~no_such_user_here", "~no_such_user_here/Documents"])
+def test_unknown_user_path_is_refused(cfg_file, path, capsys):
+    assert run("set", "dev_scan_paths", "~/", path) == 1
+    assert not cfg_file.exists()
+    assert path in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("paths", [[], ["~no_such_user_here"]])
+def test_unusable_path_list_in_the_file_is_flagged_and_can_be_unset(cfg_file, paths, capsys):
+    cfg_file.write_text(json.dumps({"scan_paths": paths}))
+    assert run() == 0
+    assert f"scan_paths = {json.dumps(paths)}  (INVALID: " in capsys.readouterr().out
+    assert run("set", "old_file_days", "90") == 1
+    assert saved(cfg_file) == {"scan_paths": paths}
+    assert run("unset", "scan_paths") == 0
+
+
+@pytest.mark.parametrize("argv", [
+    ["set", "old_file_days", "90"],
+    ["get", "storage_warn_gb"],
+])
+def test_bad_threshold_message_offers_set_as_well_as_unset(cfg_file, argv, capsys):
+    cfg_file.write_text('{"storage_warn_gb": "x", "storage_urgent_gb": 30}')
+    assert run(*argv) == 1
+    assert "`config set storage_warn_gb <number>` or `config unset" in capsys.readouterr().err
+    assert run("set", "storage_warn_gb", "40") == 0

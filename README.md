@@ -159,6 +159,10 @@ python main.py config unset old_file_days           # back to the default
 Unknown settings and values that make no sense are refused, and a damaged `config.json`
 is left untouched. Changes apply from the next run, including the scheduled one.
 
+Path settings need at least one path. `storage_urgent_gb` may not be above
+`storage_warn_gb` — if a hand edit left it that way, fix it before changing anything else
+(correcting another invalid value is still allowed).
+
 `dev_junk_dormant_days` is how long a project must have gone without a commit before its
 `node_modules` counts as junk. A project is also spared while anything local says it is in
 use — the dependencies were installed recently, a file beside them was edited, or the

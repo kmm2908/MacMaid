@@ -19,6 +19,7 @@ WHOLE_NUMBER_KEYS = {"large_file_threshold_mb", "old_file_days", "log_retention_
                      "trash_retention_days", "dev_junk_dormant_days"}
 NUMBER_KEYS = {"storage_warn_gb", "storage_urgent_gb", "storage_realert_hours"}
 PATH_LIST_KEYS = {"scan_paths", "dev_scan_paths"}
+THRESHOLD_KEYS = {"storage_urgent_gb", "storage_warn_gb"}
 BOOL_KEYS = {"permanent_delete"}
 TEXT_KEYS = {"email_report_to"}
 KEYS = sorted(WHOLE_NUMBER_KEYS | NUMBER_KEYS | PATH_LIST_KEYS | BOOL_KEYS | TEXT_KEYS)
@@ -39,9 +40,11 @@ def _problem(key: str, value: object) -> str | None:
         return None if isinstance(value, bool) else "true or false"
     if key in PATH_LIST_KEYS:
         # The nightly job has no useful working directory, so a relative path means nothing.
-        ok = isinstance(value, list) and all(
-            isinstance(v, str) and v.startswith(("/", "~")) for v in value)
-        return None if ok else "paths starting with / or ~"
+        # An unknown ~name stays unexpanded, and an empty list makes the scans use their own.
+        ok = isinstance(value, list) and bool(value) and all(
+            isinstance(v, str) and v.startswith(("/", "~"))
+            and os.path.expanduser(v).startswith("/") for v in value)
+        return None if ok else "full paths (/, ~ or ~username of a real user), at least one"
     if key in TEXT_KEYS:
         ok = value == "" or (isinstance(value, str) and value.isprintable()
                              and EMAIL.fullmatch(value) is not None)
@@ -76,6 +79,12 @@ def _parse(key: str, values: list[str]) -> object:
     return value
 
 
+def _remedy(key: str) -> str:
+    """How to clear a bad value; unset is refused for a threshold when the default would invert."""
+    unset = f"`config unset {key}`"
+    return f"`config set {key} <number>` or {unset}" if key in THRESHOLD_KEYS else unset
+
+
 def _check_file(data: dict[str, Any], module_names: Sequence[str]) -> None:
     """Refuse to rewrite settings that hold a bad value; "false" in quotes reads as true."""
     entries = {key: data[key] for key in KEYS if key in data}
@@ -85,7 +94,7 @@ def _check_file(data: dict[str, Any], module_names: Sequence[str]) -> None:
         wanted = _problem(key, value)
         if wanted:
             raise ValueError(f"{cfg.CONFIG_PATH} has {key} = {json.dumps(value)}, which must be "
-                             f"{wanted}. Run `config unset {key}` first.")
+                             f"{wanted}. Run {_remedy(key)} first.")
 
 
 def _bad_value(data: dict[str, Any], key: str) -> str | None:
@@ -96,14 +105,20 @@ def _bad_value(data: dict[str, Any], key: str) -> str | None:
     return f"{key} = {json.dumps(section[name])}  (INVALID: must be {wanted})" if wanted else None
 
 
-def _check_thresholds(data: dict[str, Any]) -> None:
+def _check_thresholds(data: dict[str, Any], hint: str) -> None:
     levels: dict[str, Any] = {}
     for key in ("storage_urgent_gb", "storage_warn_gb"):
         value = data.get(key, cfg.DEFAULTS[key])
         levels[key] = cfg.DEFAULTS[key] if _problem(key, value) else value
     if levels["storage_urgent_gb"] > levels["storage_warn_gb"]:
         raise ValueError("storage_urgent_gb ({storage_urgent_gb}) cannot be above "
-                         "storage_warn_gb ({storage_warn_gb}).".format(**levels))
+                         "storage_warn_gb ({storage_warn_gb}).".format(**levels) + hint)
+
+
+def _threshold_hint(key: str, removing: bool) -> str:
+    if key not in THRESHOLD_KEYS:
+        return " Change one of them with `config set` first."
+    return f" Give {key} a value with `config set` instead." if removing else ""
 
 
 def _read_file() -> dict[str, Any]:
@@ -187,15 +202,16 @@ def run(argv: list[str], module_names: Sequence[str]) -> int:
         data = _read_file()
         bad = _bad_value(data, args.key)
         if args.action == "get" and bad:
-            raise ValueError(f"{bad}. Run `config unset {args.key}`.")
+            raise ValueError(f"{bad}. Run {_remedy(args.key)}.")
         if args.action != "get":
             values = args.values if args.action == "set" else None
             changed = _changed(data, args.key, values)
             # Removing a bad value is let through, or two of them could never be cleared.
-            if not (values is None and _bad_value(data, args.key)):
+            if not (values is None and bad):
                 _check_file(changed, module_names)
-            if args.key in ("storage_urgent_gb", "storage_warn_gb"):
-                _check_thresholds(changed)
+            # Correcting some other bad value must not wait for the thresholds.
+            if args.key in THRESHOLD_KEYS or not bad:
+                _check_thresholds(changed, _threshold_hint(args.key, values is None))
             _write_file(changed)
         print(f"{args.key} = {_value(args.key)}" if args.action != "get" else _value(args.key))
     except (ValueError, OSError) as exc:
