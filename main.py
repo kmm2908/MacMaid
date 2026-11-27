@@ -129,50 +129,61 @@ def _without_moved(results: list[dict], moved_paths: list[str]) -> list[dict]:
     return kept_results
 
 
+class _Stopped(Exception):
+    """Ctrl-C at a prompt."""
+
+
+def _confirm(question: str) -> bool:
+    # unsafe_ask: ask() answers None on Ctrl-C, which would just move on to the next prompt
+    try:
+        return questionary.confirm(question).unsafe_ask()
+    except KeyboardInterrupt:
+        raise _Stopped from None
+
+
+def _add_to(total: cleaner_mod.CleanResult, cr: cleaner_mod.CleanResult) -> None:
+    total.moved += cr.moved
+    total.errors += cr.errors
+    total.bytes_freed += cr.bytes_freed
+    total.skipped += cr.skipped
+    total.changed_paths.extend(cr.changed_paths)
+    total.error_paths.extend(cr.error_paths)
+    total.moved_paths.extend(cr.moved_paths)
+
+
 def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanResult:
     total_result = cleaner_mod.CleanResult()
 
-    for scanned in results:
-        r = _without_moved([scanned], total_result.moved_paths)[0]
-        if r["risk"] == "inform-only" or not r["items"]:
-            continue
+    def clean(items: list[dict]) -> None:
+        _add_to(total_result, cleaner_mod.clean_items(
+            items, permanent=permanent, trash_retention_days=_trash_retention_days()))
 
-        if r["risk"] == "safe":
-            size = reporter.format_size(r["total_size_bytes"])
-            confirm = questionary.confirm(
-                f"Clean {r['category']}? ({size})"
-            ).ask()
-            if confirm:
-                cr = cleaner_mod.clean_items(_with_action(r), permanent=permanent,
-                                             trash_retention_days=_trash_retention_days())
-                total_result.moved += cr.moved
-                total_result.errors += cr.errors
-                total_result.bytes_freed += cr.bytes_freed
-                total_result.skipped += cr.skipped
-                total_result.changed_paths.extend(cr.changed_paths)
-                total_result.moved_paths.extend(cr.moved_paths)
-
-        elif r["risk"] == "review":
-            show = questionary.confirm(
-                f"Review {r['category']} ({len(r['items'])} items)?"
-            ).ask()
-            if not show:
+    try:
+        for scanned in results:
+            r = _without_moved([scanned], total_result.moved_paths)[0]
+            if r["risk"] == "inform-only" or not r["items"]:
                 continue
-            to_clean = []
-            for item in r["items"]:
-                reporter.print_item_detail(item)
-                keep = questionary.confirm(f"  Move to Trash?").ask()
-                if keep:
-                    to_clean.append(item)
-            if to_clean:
-                cr = cleaner_mod.clean_items(_with_action(r, to_clean), permanent=permanent,
-                                             trash_retention_days=_trash_retention_days())
-                total_result.moved += cr.moved
-                total_result.errors += cr.errors
-                total_result.bytes_freed += cr.bytes_freed
-                total_result.skipped += cr.skipped
-                total_result.changed_paths.extend(cr.changed_paths)
 
+            if r["risk"] == "safe":
+                size = reporter.format_size(r["total_size_bytes"])
+                verb = "Permanently delete" if permanent else "Clean"
+                if _confirm(f"{verb} {r['category']}? ({size})"):
+                    clean(_with_action(r))
+
+            elif r["risk"] == "review":
+                if not _confirm(f"Review {r['category']} ({len(r['items'])} items)?"):
+                    continue
+                to_clean = []
+                for item in r["items"]:
+                    reporter.print_item_detail(item)
+                    if _confirm("  Delete permanently?" if permanent else "  Move to Trash?"):
+                        to_clean.append(item)
+                if to_clean:
+                    clean(_with_action(r, to_clean))
+    except _Stopped:
+        console.print("[yellow]Stopped — nothing else will be cleaned.[/yellow]")
+
+    log_errors(total_result)
     return total_result
 
 

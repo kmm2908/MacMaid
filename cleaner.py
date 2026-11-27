@@ -73,23 +73,26 @@ def _entry_size(path: str) -> int:
     return total
 
 
-def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_DAYS
-                ) -> tuple[int, int, int]:
+def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_DAYS,
+                failures: list | None = None) -> tuple[int, int, int]:
     """Permanently remove entries binned more than `older_than_days` ago.
 
     Deletes the CONTENTS, never the trash folder itself — macOS recreates it,
     but removing it breaks Finder's Trash until reboot. Entries inside the
     retention window stay recoverable.
 
-    Returns (removed, bytes_freed, errors).
+    Returns (removed, bytes_freed, errors). Each error is also added to
+    `failures` as (path, message).
     """
     removed = freed = errors = 0
     if not os.path.isdir(trash_dir):
         return (0, 0, 0)
     cutoff = time.time() - (older_than_days * 86400)
+    failures = [] if failures is None else failures
     try:
         names = os.listdir(trash_dir)
-    except OSError:
+    except OSError as e:
+        failures.append((trash_dir, str(e)))
         return (0, 0, 1)
     for name in names:
         path = os.path.join(trash_dir, name)
@@ -106,8 +109,9 @@ def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_D
                 os.remove(path)
             removed += 1
             freed += size
-        except OSError:
+        except OSError as e:
             errors += 1
+            failures.append((path, str(e)))
     return (removed, freed, errors)
 
 
@@ -195,7 +199,8 @@ def clean_items(items: list[dict], permanent: bool = False,
         path = item["path"]
         try:
             if item.get("action") == "empty-trash":
-                removed, freed, errors = empty_trash(path, trash_retention_days)
+                removed, freed, errors = empty_trash(path, trash_retention_days,
+                                                     result.error_paths)
                 result.moved += removed
                 result.bytes_freed += freed
                 result.errors += errors

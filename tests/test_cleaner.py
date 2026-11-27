@@ -136,3 +136,21 @@ def test_mail_and_backup_folders_changed_since_the_scan_are_left_alone(
 
     assert trash.called is (change is None)
     assert result.changed_paths == ([] if change is None else [items[0]["path"]])
+
+
+def test_a_failed_trash_emptying_names_what_could_not_be_removed(tmp_path, monkeypatch,
+                                                                binned_when_modified):
+    import os
+    import cleaner
+    stuck = tmp_path / "stuck.bin"
+    stuck.write_bytes(b"x")
+    os.utime(stuck, (0, 0))
+
+    def refuse(path):
+        raise PermissionError("Operation not permitted")
+
+    monkeypatch.setattr(cleaner.os, "remove", refuse)
+    result = cleaner.clean_items([{"path": str(tmp_path), "action": "empty-trash"}])
+
+    assert result.errors == 1
+    assert result.error_paths == [(str(stuck), "Operation not permitted")]

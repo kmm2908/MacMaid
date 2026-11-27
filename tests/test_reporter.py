@@ -60,3 +60,25 @@ def test_summary_says_nothing_about_skips_when_there_were_none():
 
     assert "Left alone" not in text
     assert "Skipped" not in text
+
+
+def test_print_results_shows_bracketed_text_as_written():
+    import reporter
+    from modules.base import make_item, make_result
+    broken = make_result("Caches", "safe", suggestion="Error: [Errno 1] not permitted")
+    named = make_result("Large", "review", items=[make_item("/x", 1, "a [/b] :cd: file")])
+    out = StringIO()
+    with patch.object(reporter, "console", reporter.Console(file=out, width=200)):
+        reporter.print_results([broken, named])
+    assert "[Errno 1] not permitted" in out.getvalue()
+    assert "a [/b] :cd: file" in out.getvalue()
+
+
+def test_item_detail_shows_the_kept_copy_name_in_full():
+    import reporter
+    from modules.base import make_item
+    item = make_item("/x", 1, "copy", meta={"duplicate_of": "/m/movie [final].mkv"})
+    out = StringIO()
+    with patch.object(reporter, "console", reporter.Console(file=out, width=200)):
+        reporter.print_item_detail(item)
+    assert "/m/movie [final].mkv" in out.getvalue()

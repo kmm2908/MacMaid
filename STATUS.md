@@ -40,7 +40,7 @@ A macOS maintenance CLI: scans for junk across 15 categories, reports findings i
 - **Low-storage warning** (2026-11-05): `storage_watch.py` runs hourly from its own LaunchAgent (`com.macmaid.storage`, installed and confirmed loaded and exiting 0). Below 25 GB free it emails (`--action`) and shows a notification; below 10 GB the email goes `--urgent`. The body lists Trash first, then the largest of Downloads, Caches, Developer, iPhone backups, Mail, Desktop and Documents. Prompted by the Data volume hitting 4.7 GB free on 2026-11-05, when macOS kept force-quitting RoboForm to reclaim space. Not built: watching the unified log for `CacheDeleteAppContainerCaches` terminations. 2026-11-27: under launchd macOS refuses Trash, Mail and iPhone backups (no Full Disk Access, measured); the alert now says so, shows partly readable folders as "at least N GB" and counts local Time Machine snapshots
 - **Readable review UI and email** (2026-11-27, card 5hkxisKU): both are dark, 24px minimum, canonical buttons (every report email is now HTML, with or without the review button). The page takes its colours from `tokens.css` (copied whole from the dashboard-ui skill); the email inlines the same hexes. `tests/test_ui_contrast.py` renders six states of the page and the email in headless Chrome and fails on any breach, so the suite now needs Playwright and Google Chrome
 - **Duplicates tab tested end-to-end** (2026-11-27, card js35p4gA): one-off run with a real scan, real Chrome and real Trash on throwaway files (the committed tests mock the cleaner). Fixed: a symlink, hard link or overlapping scan path could offer a file's only copy as its duplicate; a file listed in both tabs stayed in one after trashing; the confirm box now counts selected files hidden by the filter; an empty filter reads `0 of 0`; a duplicate is refused if the copy it duplicates is gone or changed by the time you click
-- **Test suite**: 388 tests, all passing, 0 skipped (verified 2026-11-27)
+- **Test suite**: 441 tests, all passing, 0 skipped (verified 2026-11-27)
 - **Project hygiene** (2026-07-09): `CLAUDE.md`, `.claude/settings.json`, and superpowers design docs added; `.playwright-mcp` scratch + `settings.local.json` gitignored
 - **GitHub**: https://github.com/kmm2908/MacMaid
 
@@ -48,7 +48,7 @@ A macOS maintenance CLI: scans for junk across 15 categories, reports findings i
 
 ## Needs Testing (Manual)
 
-- [ ] Run `python main.py` interactively end-to-end — needs a real terminal (questionary uses the TTY directly)
+- [x] Run `python main.py` interactively end-to-end — done 2026-11-27 (4J1ymHNX): driven in a pseudo-terminal (`tests/test_interactive_e2e.py`). Fixed: Ctrl-C moved on to the next prompt instead of stopping; a file trashed in one review was offered again in the next; failures (Trash emptying included) never reached the error log; `[..]` in file names was not shown; `--permanent` still asked "Move to Trash?"
 - [x] Test Duplicates tab end-to-end — done 2026-11-27 (js35p4gA)
 - [x] Full test suite (pytest) — 181/181, 0 skipped (2026-09-01)
 - [x] `--unattended --no-email` scan across all 14 modules
