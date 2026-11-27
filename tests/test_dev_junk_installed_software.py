@@ -21,6 +21,12 @@ from modules import dev_junk
 
 GIT_ID = ["-c", "user.email=t@example.com", "-c", "user.name=Test"]
 
+
+def _scan_roots(monkeypatch, *roots: str) -> None:
+    real = dev_junk.cfg.get
+    monkeypatch.setattr(dev_junk.cfg, "get",
+                        lambda key: list(roots) if key == "dev_scan_paths" else real(key))
+
 # Fixture repositories are back-dated past the dormancy window, so these tests
 # keep testing the installed-software discriminator rather than liveness. The
 # offset is derived from the production constant, not restated, so the fixtures
@@ -477,7 +483,7 @@ def test_git_is_queried_once_per_directory_across_scan_roots(tmp_path, monkeypat
         return real_run(*a, **k)
 
     monkeypatch.setattr(dev_junk.subprocess, "run", counting)
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [root, root])
+    _scan_roots(monkeypatch, root, root)
     monkeypatch.setattr(dev_junk, "XCODE_DERIVED", str(tmp_path / "nope"))
     monkeypatch.setattr(dev_junk, "PIP_CACHE", str(tmp_path / "nope"))
     monkeypatch.setattr(dev_junk, "NPM_CACHE", str(tmp_path / "nope"))
@@ -532,7 +538,7 @@ def test_scan_reports_when_the_git_budget_runs_out(tmp_path, monkeypatch):
 
     monkeypatch.setattr(dev_junk.subprocess, "run", slow)
     monkeypatch.setattr(dev_junk, "GIT_SCAN_BUDGET_SECONDS", 0.04)
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [root])
+    _scan_roots(monkeypatch, root)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 
@@ -550,7 +556,7 @@ def test_an_operational_git_failure_is_degraded_not_a_plain_no(tmp_path, monkeyp
         stderr = b"fatal: detected dubious ownership in repository"
 
     monkeypatch.setattr(dev_junk.subprocess, "run", lambda *a, **k: _Refused())
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [root])
+    _scan_roots(monkeypatch, root)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 
@@ -561,7 +567,7 @@ def test_a_plain_non_repository_answer_is_not_degraded(tmp_path, monkeypatch):
     outside = str(tmp_path / "outside")
     _file(outside, "package.json", "{}")
     _file(os.path.join(outside, "node_modules", "dep"), "index.js")
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [outside])
+    _scan_roots(monkeypatch, outside)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 
@@ -652,7 +658,7 @@ def test_scan_reports_when_git_could_not_be_consulted(tmp_path, monkeypatch):
         raise FileNotFoundError("git")
 
     monkeypatch.setattr(dev_junk.subprocess, "run", boom)
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [root])
+    _scan_roots(monkeypatch, root)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 
@@ -665,7 +671,7 @@ def test_scan_reports_when_git_could_not_be_consulted(tmp_path, monkeypatch):
 def test_scan_says_nothing_about_completeness_when_git_works(tmp_path, monkeypatch):
     root = _repo(str(tmp_path))
     _project(root, "myproject")
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [root])
+    _scan_roots(monkeypatch, root)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 
@@ -776,7 +782,7 @@ def test_a_translated_git_error_is_still_an_ordinary_no(tmp_path, monkeypatch):
     _file(os.path.join(outside, "node_modules", "dep"), "index.js")
     monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
     monkeypatch.setenv("LANG", "fr_FR.UTF-8")
-    monkeypatch.setattr(dev_junk, "DEV_SCAN_PATHS", [outside])
+    _scan_roots(monkeypatch, outside)
     for const in ("XCODE_DERIVED", "PIP_CACHE", "NPM_CACHE"):
         monkeypatch.setattr(dev_junk, const, str(tmp_path / "nope"))
 

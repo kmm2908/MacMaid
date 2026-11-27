@@ -34,9 +34,14 @@ def _repo(root):
     _git(root, "commit", "-qm", "init")
 
 
+def _config_with_root(root: str):
+    real = dev_junk.cfg.get
+    return lambda key: [root] if key == "dev_scan_paths" else real(key)
+
+
 def _patched(tmp_path):
     return [
-        patch("modules.dev_junk.DEV_SCAN_PATHS", [str(tmp_path)]),
+        patch("modules.dev_junk.cfg.get", _config_with_root(str(tmp_path))),
         patch("modules.dev_junk.XCODE_DERIVED", str(tmp_path / "xcode")),
         patch("modules.dev_junk.PIP_CACHE", str(tmp_path / "pip")),
         patch("modules.dev_junk.NPM_CACHE", str(tmp_path / "npm")),

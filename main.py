@@ -133,10 +133,11 @@ class _Stopped(Exception):
     """Ctrl-C at a prompt."""
 
 
-def _confirm(question: str) -> bool:
+def _confirm(question: str, default: bool) -> bool:
+    """`default` is what a bare Enter answers: False for anything that cannot be undone."""
     # unsafe_ask: ask() answers None on Ctrl-C, which would just move on to the next prompt
     try:
-        return questionary.confirm(question).unsafe_ask()
+        return questionary.confirm(question, default=default).unsafe_ask()
     except KeyboardInterrupt:
         raise _Stopped from None
 
@@ -167,16 +168,18 @@ def interactive_mode(results: list[dict], permanent: bool) -> cleaner_mod.CleanR
             if r["risk"] == "safe":
                 size = reporter.format_size(r["total_size_bytes"])
                 verb = "Permanently delete" if permanent else "Clean"
-                if _confirm(f"{verb} {r['category']}? ({size})"):
+                undoable = not permanent and r["action"] == "trash"
+                if _confirm(f"{verb} {r['category']}? ({size})", default=undoable):
                     clean(_with_action(r))
 
             elif r["risk"] == "review":
-                if not _confirm(f"Review {r['category']} ({len(r['items'])} items)?"):
+                if not _confirm(f"Review {r['category']} ({len(r['items'])} items)?", default=True):
                     continue
                 to_clean = []
                 for item in r["items"]:
                     reporter.print_item_detail(item)
-                    if _confirm("  Delete permanently?" if permanent else "  Move to Trash?"):
+                    question = "  Delete permanently?" if permanent else "  Move to Trash?"
+                    if _confirm(question, default=False):
                         to_clean.append(item)
                 if to_clean:
                     clean(_with_action(r, to_clean))

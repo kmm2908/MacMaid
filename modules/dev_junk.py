@@ -7,7 +7,6 @@ import time
 from modules.base import make_result, make_item, TRASH_DIR_NAMES, is_in_trash, is_removable
 import config as cfg
 
-DEV_SCAN_PATHS = [os.path.expanduser(p) for p in (cfg.get("dev_scan_paths") or ["~/"])]
 XCODE_DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 PIP_CACHE = os.path.expanduser("~/Library/Caches/pip")
 NPM_CACHE = os.path.expanduser("~/.npm/_cacache")
@@ -476,8 +475,8 @@ def _scan_path(base: str, items: list, cache: dict | None = None) -> None:
 def scan() -> dict:
     items = []
     git_cache = _new_cache()  # one budget for the whole scan, not one per root
-    for path in DEV_SCAN_PATHS:
-        _scan_path(path, items, git_cache)
+    for path in cfg.get("dev_scan_paths") or ["~/"]:
+        _scan_path(os.path.expanduser(path), items, git_cache)
     for static_path in [XCODE_DERIVED, PIP_CACHE, NPM_CACHE]:
         if os.path.isdir(static_path):
             size = _dir_size(static_path)

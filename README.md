@@ -32,7 +32,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Scans all enabled modules, displays results, then walks you through each category asking what to clean.
+Scans all enabled modules, displays results, then walks you through each category asking what to clean. Pressing Enter takes the capital-letter answer: it is No for emptying the Trash, for each reviewed file and for every deletion under `--permanent`.
 
 ### Unattended scan
 

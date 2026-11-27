@@ -125,8 +125,8 @@ def test_no_to_everything_changes_nothing(root):
 def test_ctrl_c_stops_the_run(root):
     before = _files(root)
 
-    # Enter accepts the default, so any prompt after Ctrl-C would delete something
-    code, screen, asked = drive(root, lambda n, q: CTRL_C if n == 1 else ENTER)
+    # any prompt after Ctrl-C would delete something
+    code, screen, asked = drive(root, lambda n, q: CTRL_C if n == 1 else b"y")
 
     assert code == 0, screen
     assert len(asked) == 1, asked
@@ -179,3 +179,26 @@ def test_permanent_mode_says_so_before_deleting(root):
     assert not any("Move to Trash" in q for q in asked), asked
     assert any("Permanently delete Caches?" in q for q in asked), asked
     assert not (root / "binned").exists()
+
+
+def test_enter_alone_empties_no_trash_and_moves_no_reviewed_file(root):
+    code, screen, asked = drive(root, lambda n, q: ENTER)
+
+    assert code == 0, screen
+    assert any("Clean Trash?" in q and "(y/N)" in q for q in asked), asked
+    assert (root / "home" / ".Trash" / "gone.bin").exists()
+    assert (root / "home" / "Documents" / "movie [final].mkv").exists()
+    assert (root / "home" / "Desktop" / "movie copy.mkv").exists()
+    assert any("Move to Trash" in q for q in asked), asked
+    # a cache goes to the Trash and can come back, so Enter still cleans it
+    assert (root / "binned" / "com.example.app").exists(), screen
+
+
+def test_enter_alone_deletes_nothing_in_permanent_mode(root):
+    before = _files(root)
+
+    code, screen, asked = drive(root, lambda n, q: ENTER, "--permanent")
+
+    assert code == 0, screen
+    assert any("Delete permanently?" in q for q in asked), asked
+    assert _files(root) == before
