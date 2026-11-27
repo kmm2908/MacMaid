@@ -1,7 +1,11 @@
 import os
 import time
 
+import pytest
+
 from modules import trash
+
+pytestmark = pytest.mark.usefixtures("binned_when_modified")
 
 
 def _age(path, days):

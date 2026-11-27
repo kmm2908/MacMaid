@@ -21,6 +21,7 @@ A macOS maintenance CLI: scans for junk across 15 categories, reports findings i
 
 - **15 scan modules** (`downloads` is off by default; the CleanUp cron still does that job): `caches`, `logs`, `trash`, `downloads`, `large_files`, `duplicates`, `dev_junk`, `browsers`, `mail`, `login_items`, `disk_health`, `memory`, `thermal`, `ios_backups`, `xcode_sims` (each exposes `scan() -> dict` via `modules/base.py` helpers)
 - **Cleaner**: send2trash (default) + permanent delete mode; `CleanResult` includes `moved_paths` for accurate UI state
+- **Trash retention counts from binned time** (2026-11-27, card guPNotLn): entries are emptied 7 days after they reached the Trash (Date Added), not after their last edit; a later write inside restarts the count; hard links and unknown dates are kept
 - **Reporter**: Rich terminal UI — panels, tables, progress bar, unattended text report, dry-run header
 - **Emailer**: wraps `~/.claude/utils/send_email.py`
 - **Scheduler**: installs/removes LaunchAgent plist; `_resolve_python()` prefers active venv; registers `macmaid://` URL scheme on install

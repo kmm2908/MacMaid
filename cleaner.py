@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from send2trash import send2trash
 
-from modules.base import newest_mtime
+from modules.base import binned_before, newest_mtime
 from modules.downloads import is_protected
 
 DEFAULT_TRASH_RETENTION_DAYS = 7
@@ -75,10 +75,10 @@ def _entry_size(path: str) -> int:
 
 def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_DAYS
                 ) -> tuple[int, int, int]:
-    """Permanently remove trash entries older than `older_than_days`.
+    """Permanently remove entries binned more than `older_than_days` ago.
 
     Deletes the CONTENTS, never the trash folder itself — macOS recreates it,
-    but removing it breaks Finder's Trash until reboot. Entries newer than the
+    but removing it breaks Finder's Trash until reboot. Entries inside the
     retention window stay recoverable.
 
     Returns (removed, bytes_freed, errors).
@@ -94,9 +94,12 @@ def empty_trash(trash_dir: str, older_than_days: int = DEFAULT_TRASH_RETENTION_D
     for name in names:
         path = os.path.join(trash_dir, name)
         try:
-            if os.lstat(path).st_mtime >= cutoff:
+            if not binned_before(path, cutoff):
                 continue
             size = _entry_size(path)
+            # Sizing takes time; the entry may have been written to or replaced
+            if not binned_before(path, cutoff):
+                continue
             if os.path.isdir(path) and not os.path.islink(path):
                 shutil.rmtree(path)
             else:

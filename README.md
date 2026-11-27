@@ -69,6 +69,11 @@ python main.py --schedule-status
 python main.py --unschedule
 ```
 
+Trash entries are permanently deleted once they have been in the Trash for
+`trash_retention_days` (7), counted from when they were binned, not when they were last edited.
+Anything written to after that (including deep inside a folder) restarts the count. Hard-linked
+files, and entries on a volume that does not record the binned date, are kept.
+
 `--schedule` also installs an hourly low-storage check (`com.macmaid.storage`), and
 `--unschedule` removes both. Run it by hand with:
 

@@ -1,7 +1,7 @@
 import os
 import time
 
-from modules.base import make_result, make_item
+from modules.base import binned_before, make_result, make_item
 import config as cfg
 
 TRASH_PATH = os.path.expanduser("~/.Trash")
@@ -28,7 +28,7 @@ def trash_dirs() -> list[str]:
 
 
 def reclaimable_size(trash_dir: str, older_than_days: int = DEFAULT_RETENTION_DAYS) -> int:
-    """Bytes held by entries old enough to be emptied — not the whole trash.
+    """Bytes held by entries binned long enough ago to be emptied — not the whole trash.
 
     Reporting the full size would promise space the retention window won't free.
     """
@@ -41,7 +41,7 @@ def reclaimable_size(trash_dir: str, older_than_days: int = DEFAULT_RETENTION_DA
     for name in names:
         path = os.path.join(trash_dir, name)
         try:
-            if os.lstat(path).st_mtime >= cutoff:
+            if not binned_before(path, cutoff):
                 continue
             if os.path.isdir(path) and not os.path.islink(path):
                 for dirpath, _, filenames in os.walk(path):
@@ -69,12 +69,12 @@ def scan() -> dict:
 
     if not items:
         return make_result("Trash", "safe", action="empty-trash",
-                           suggestion=f"Nothing in the Trash is older than {retention} days")
+                           suggestion=f"Nothing has been in the Trash longer than {retention} days")
     total_mb = sum(i["size_bytes"] for i in items) / (1024 ** 2)
     return make_result(
         "Trash",
         "safe",
         action="empty-trash",
-        suggestion=f"Permanently free {total_mb:.0f} MB of Trash older than {retention} days",
+        suggestion=f"Permanently free {total_mb:.0f} MB of Trash binned more than {retention} days ago",
         items=items,
     )

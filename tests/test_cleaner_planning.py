@@ -1,7 +1,11 @@
 import os
 import time
 
+import pytest
+
 from cleaner import clean_items, plan_items, empty_trash
+
+pytestmark = pytest.mark.usefixtures("binned_when_modified")
 
 
 def _item(path, size=10, action="trash"):
@@ -79,7 +83,8 @@ def test_empty_trash_removes_old_directories_recursively(tmp_path):
     d = tmp_path / "old-project"
     (d / "nested").mkdir(parents=True)
     (d / "nested" / "f.bin").write_text("x" * 20)
-    _age(d, 60)
+    for path in (d / "nested" / "f.bin", d / "nested", d):
+        _age(path, 60)
     removed, freed, errors = empty_trash(str(tmp_path), older_than_days=7)
     assert not d.exists()
     assert removed == 1

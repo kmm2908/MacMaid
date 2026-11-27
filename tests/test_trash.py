@@ -22,7 +22,7 @@ def test_scan_with_nothing_past_retention():
         result = scan()
     assert result["total_size_bytes"] == 0
     assert result["items"] == []
-    assert "older than" in result["suggestion"]
+    assert "longer than" in result["suggestion"]
 
 
 def test_scan_aggregates_multiple_volumes():

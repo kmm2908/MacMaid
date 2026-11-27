@@ -2,7 +2,14 @@ import os
 
 import pytest
 
+from modules import base
 from modules.dev_junk import _GIT_ENV_STRIP
+
+
+@pytest.fixture
+def binned_when_modified(monkeypatch):
+    """Backdating mtime also backdates when the entry reached the Trash."""
+    monkeypatch.setattr(base, "added_time", lambda path: os.lstat(path).st_mtime)
 
 
 @pytest.fixture(autouse=True)
