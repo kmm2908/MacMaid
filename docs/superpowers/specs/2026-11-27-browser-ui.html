@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MacMaid: moving everything into the browser</title>
+<style>/* Canonical dark-dashboard tokens. Copy this WHOLE file into any page the user reads.
+ *
+ * THIS FILE IS THE SOURCE OF TRUTH for the hex values. The table in
+ * ~/.claude/CLAUDE.md is a reminder; if the two ever disagree, this wins.
+ *
+ * Every number below was measured with getComputedStyle on a rendered page, not
+ * calculated from source. Re-measure with test_contrast.py before changing any of
+ * them — the defect that produced this file (white on a light red at 2.08:1) sat
+ * inside a palette whose own comment claimed 10:1, because that one pairing had
+ * never been rendered.
+ *
+ * The rules these tokens encode:
+ *   1. A control is a DARK coloured face with WHITE letters. The only other
+ *      permitted pairing is a light face with near-black letters.
+ *   2. A mid-tone face is refused whatever it measures.
+ *   3. Never dim the text on a control. You have to FIND it before you can read
+ *      it, and dimming is the opposite of that.
+ *   4. Every filled face carries a bright 2px edge in its own hue. A dark face on
+ *      a near-black page vanishes — two controls measured 1.08:1 against their own
+ *      panel while their letters were perfectly legible.
+ *   5. Colour is a SECONDARY cue. The label carries the meaning, never the hue.
+ *   6. The page keeps a real gutter. Text that runs to the window edge is the
+ *      complaint this token exists for: 28.8px on a 24px type scale is barely one
+ *      character, and reads as text falling off the screen.
+ */
+:root{
+  /* 24px base, and nothing renders below 1rem. Accessibility floor, not a start.
+     Raised from 20px on 2026-09-03, owner instruction. */
+  font-size:24px;
+
+  /* Outer gutter — the border between the text and the window edge. Owner
+     instruction 2026-09-08, after a page with 1.2rem sides was rejected as having
+     no border at all. Viewport-aware on purpose: a fixed 2rem is generous at
+     1400px and strangling at 390px, where it would leave ~12 characters a line.
+       390px -> 24px   ·   1000px -> 40px   ·   1440px -> 57.6px   ·   >=1600px -> 64px+
+     test_contrast_static.py measures the rendered gap and exits 1 below it. */
+  --gutter:clamp(1rem, 4vw, 4rem);
+
+  /* Surfaces, darkest first. */
+  --bg:#07090c;        /* page */
+  --panel:#11151b;     /* card / panel */
+  --panel-2:#171d25;   /* inset within a panel */
+  --line:#3d4a5a;      /* hairline divider */
+
+  /* Body text. All >= 8.8:1 on every surface above. */
+  --text:#f2f6fa;      /* primary */
+  --dim:#ccd6e2;       /* secondary prose and labels — NOT for controls */
+  --dimmer:#aebdcc;    /* tertiary metadata — NOT for controls */
+
+  /* Bright hues, for edges, focus rings and non-control accents. */
+  --accent:#8fd3ff; --ok:#2bff88; --warn:#ffc24d; --bad:#ff8a94; --purple:#d4b3ff;
+
+  /* CONTROLS — face / edge pairs.        white-on-face   face-on-panel */
+  --btn-blue:#12558c;  --edge-blue:#8fd3ff;   /* 7.7:1        2.4:1  neutral action, link-out */
+  --btn-green:#14663a; --edge-green:#2bff88;  /* 7.0:1        2.6:1  affirmative: approve, confirm */
+  --btn-amber:#8a4a06; --edge-amber:#ffc24d;  /* 6.7:1        2.7:1  caution: send back, withdraw */
+  --btn-red:#a82733;   --edge-red:#ff8a94;    /* 7.1:1        2.6:1  destructive, error badges */
+  --btn-grey:#414f63;  --edge-grey:#aebdcc;   /* 8.2:1        2.2:1  secondary */
+  --on-btn:#ffffff;                           /* every control's letters */
+  --ink:#07090c;                              /* letters on a LIGHT face, if used */
+}
+
+/* The gutter, applied. Copying the :root block alone would leave --gutter unread, and a
+ * token nothing reads is decoration — this rule is why a page that takes the tokens gets a
+ * border for free. Only the INLINE padding: the top and bottom are the page's business.
+ * Careful: a later `padding:` shorthand replaces both halves, so write the block padding as
+ * `padding: <top> var(--gutter) <bottom>` rather than plain `padding: 2rem`. */
+body{ padding-inline:var(--gutter); }
+
+/* Dark only, applied (owner instruction 2026-10-26). Defining --bg and --text paints nothing:
+ * a page that pasted this file and never wrote its own body rule rendered white with a serif
+ * font. So the page colour, text colour and a sans font ship here. `show` exits 6 on a light
+ * page. color-scheme gives scrollbars and form controls their dark versions too. */
+:root{ color-scheme:dark; }
+html, body{ background:var(--bg); color:var(--text); }
+body{ font-family:-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; line-height:1.5; }
+
+/* Reference implementation of the control itself. */
+button, .btn{
+  font-family:inherit; font-size:1rem; cursor:pointer; font-weight:700;
+  background:var(--btn-blue); color:var(--on-btn);
+  border:2px solid var(--edge-blue); border-radius:.5rem; padding:.55rem 1rem;
+}
+button.affirm  { background:var(--btn-green); border-color:var(--edge-green) }
+button.caution { background:var(--btn-amber); border-color:var(--edge-amber) }
+button.destroy { background:var(--btn-red);   border-color:var(--edge-red) }
+button.secondary{background:var(--btn-grey);  border-color:var(--edge-grey) }
+/* Disabled dims the FACE, never the letters — the label must stay readable. */
+button:disabled{ background:var(--btn-grey); border-color:var(--line);
+                 color:var(--on-btn); opacity:.75; cursor:not-allowed }
+button:focus-visible{ outline:3px solid var(--accent); outline-offset:2px }
+
+/* `font: 1rem/1.5 inherit` is INVALID — `inherit` cannot be the family inside the
+ * shorthand, so the browser discards the SIZE with it and the element falls back
+ * to the user-agent default (13.3px). Bare `font: inherit` is fine. Longhand here
+ * on purpose; it is invisible in review and only getComputedStyle shows it. */
+input, textarea, select{
+  font-family:inherit; font-size:1rem; line-height:1.5;
+  color:var(--text); background:var(--panel-2);
+  border:1px solid var(--edge-grey); border-radius:.5rem; padding:.5rem .6rem;
+}
+
+/* Every picture and video on a page he reads fits on one screen (owner instruction 2026-10-19:
+ * "The images are far too big for me to see on one screen"). 55vh leaves room for a question
+ * above and a fixed reply bar below; object-fit keeps the shape when a width is also set. */
+img, video{ max-width:100%; max-height:55vh; object-fit:contain }
+
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
+/* var(--gutter), not a literal: this shorthand lands AFTER tokens.css's own
+   `body{padding-inline:var(--gutter)}` and would otherwise clobber it back to 36px, which the
+   contrast sweep fails at 1100px and wider. */
+body{background:var(--bg);color:var(--text);margin:0;padding:2rem var(--gutter) 12rem;
+     font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;font-size:1rem;line-height:1.55}
+main{max-width:56rem;margin:0 auto}
+h1{font-size:1.55rem;line-height:1.2;margin:0 0 .8rem}
+h2{font-size:1.2rem;margin:2.4rem 0 .8rem}
+p{margin:0 0 1rem}
+.lede{color:var(--dim)}
+.card{background:var(--panel);border:2px solid var(--line);border-radius:.75rem;
+      padding:1.2rem 1.3rem;margin:0 0 1.2rem}
+.q{font-weight:700;margin:0 0 .35rem}
+.q .num{color:var(--accent);margin-right:.5rem}
+.note{color:var(--dim);margin:0 0 .9rem}
+.opts{display:flex;flex-wrap:wrap;gap:.7rem}
+/* min-width:0 is what stops a long option label forcing the page sideways: a flex item
+   defaults to min-width:auto, so its content sets the floor and 390px overflows. */
+.opt{flex:1 1 15rem;min-width:0;text-align:left;display:block;padding:.7rem .9rem;line-height:1.35}
+.opt .k{display:inline-block;min-width:1.6rem;font-weight:700}
+.opt .d{display:block;font-weight:400;margin-top:.3rem}
+.opt[aria-pressed="true"]{outline:4px solid var(--accent);outline-offset:2px}
+.opt[aria-pressed="false"]{background:var(--btn-grey);border-color:var(--edge-grey)}
+/* 1rem, never .8: the 24px floor has no exception for a badge. */
+.rec{font-weight:700;font-size:1rem;color:var(--ink);background:var(--warn);
+     border-radius:.35rem;padding:0 .4rem;margin-left:.4rem}
+/* A field is a LIGHT face with near-black letters — the second permitted pairing. Dark-on-dark
+   cannot reach the 2:1 face-vs-surround the control rule requires: measured, a --panel-2 field
+   inside a --panel-2 bar was 1:1 and simply could not be found. */
+input[type=text],textarea{background:#eef3f8;color:var(--ink);border:2px solid var(--edge-grey);
+     font-family:inherit;font-size:1rem;line-height:1.5;border-radius:.5rem;padding:.5rem .6rem}
+input[type=text]::placeholder,textarea::placeholder{color:#2b3542;opacity:1}
+input[type=text]{width:100%}
+#bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel-2);
+     border-top:2px solid var(--line);padding:1rem 1.5rem}
+#bar .row{max-width:56rem;margin:0 auto;display:flex;flex-wrap:wrap;gap:.8rem;align-items:flex-end}
+#bar label{flex:1 1 18rem;min-width:0}
+#answer{width:100%;min-height:3.4rem;resize:vertical}
+#status{color:var(--ok);font-weight:700;min-width:0}
+/* A link inside the page is a CONTROL — he has to FIND it before he can read it — so it takes
+   the agreed button shape: a dark filled face, white letters, a bright 2px edge in the same hue.
+   An unstyled <a> inheriting the browser default measured 1.95:1 on the /needs-you page, under
+   the 6:1 floor and invisible next to var(--dim) prose. --btn-blue is the link-out role. */
+main a{display:inline-block;background:var(--btn-blue);color:var(--on-btn);
+     border:2px solid var(--edge-blue);border-radius:.4rem;padding:0 .45rem;
+     text-decoration:none;font-weight:700}
+main a:hover,main a:focus-visible{filter:brightness(1.18)}
+table{border-collapse:collapse;width:100%;margin:0 0 1rem;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+pre{overflow-x:auto;background:var(--panel-2);padding:1rem;border-radius:.5rem}
+code{background:var(--panel-2);padding:0 .3rem;border-radius:.3rem}
+</style></head><body><div id="show-updated" data-hash="8d8b8953278316f9" style="display:block;font-size:24px;line-height:1.4;font-weight:700;color:inherit;background:inherit;padding:12px 16px;margin:0 0 16px;border-bottom:2px solid currentColor">Last updated Fri 27 Nov 2026 at 02:42</div>
+
+<main>
+<h1>MacMaid: moving everything into the browser</h1>
+<p class="lede">Card lniVMHcS asks to move scan, report and clean into the browser and replace the terminal screens. Nothing has been built. Recommended: <b>1A 2A 3A</b>.</p>
+<section class="card"><p class="q"><span class="num">1</span>What happens to the terminal screens?</p><p class="note">Recommended: A. Pick B only if you never want to clean from a terminal again. Pick C if you only want to see more categories in the page you already have. Pick D if the terminal and the current review page are enough.</p><div class="opts"><button class="opt affirm" type="button" data-d="1" data-k="A" aria-pressed="false"><span class="k">A</span>Browser by default, terminal kept<span class="rec">recommended</span><span class="d">Running MacMaid opens the browser. The old screens stay behind a --terminal switch as a fallback.</span></button><button class="opt caution" type="button" data-d="1" data-k="B" aria-pressed="false"><span class="k">B</span>Browser only<span class="d">The question-and-answer terminal flow is deleted. If the page fails to load there is no other way to clean by hand.</span></button><button class="opt " type="button" data-d="1" data-k="C" aria-pressed="false"><span class="k">C</span>Only add more categories<span class="d">The terminal stays the main way in. The existing review page gains the other categories.</span></button><button class="opt secondary" type="button" data-d="1" data-k="D" aria-pressed="false"><span class="k">D</span>Drop the card<span class="d">No change.</span></button></div><textarea data-d="1" rows="2" placeholder="Anything to add on this one? (optional)" aria-label="Comment on 1"></textarea></section><section class="card"><p class="q"><span class="num">2</span>What may the browser delete?</p><p class="note">Recommended: A. Pick B only if you need to free space at once and accept that it cannot be undone. Pick C if you want the browser to be unable to delete the automatic junk categories.</p><div class="opts"><button class="opt affirm" type="button" data-d="2" data-k="A" aria-pressed="false"><span class="k">A</span>Move to Trash only<span class="rec">recommended</span><span class="d">Junk and review categories can be selected. Emptying old Trash needs its own confirmation. Permanent delete stays a terminal switch.</span></button><button class="opt destroy" type="button" data-d="2" data-k="B" aria-pressed="false"><span class="k">B</span>Also permanent delete<span class="d">Adds a permanent delete choice in the page.</span></button><button class="opt " type="button" data-d="2" data-k="C" aria-pressed="false"><span class="k">C</span>Review categories only<span class="d">Caches, logs and other junk are listed but left to the nightly run.</span></button></div><textarea data-d="2" rows="2" placeholder="Anything to add on this one? (optional)" aria-label="Comment on 2"></textarea></section><section class="card"><p class="q"><span class="num">3</span>Where does the scan run from?</p><p class="note">Recommended: A, because the card asks for the whole flow in the browser. Pick B for a smaller first version. Ignored if you chose C or D on question 1.</p><div class="opts"><button class="opt affirm" type="button" data-d="3" data-k="A" aria-pressed="false"><span class="k">A</span>Scan button in the page<span class="rec">recommended</span><span class="d">The page opens at once, shows progress per category, and can rescan.</span></button><button class="opt " type="button" data-d="3" data-k="B" aria-pressed="false"><span class="k">B</span>Scan first, then open<span class="d">You wait in the terminal, then the page opens with the results. No rescan button.</span></button></div><textarea data-d="3" rows="2" placeholder="Anything to add on this one? (optional)" aria-label="Comment on 3"></textarea></section>
+<h2>Today</h2><p>The terminal runs the scan and asks about each category, and each item in the review categories. The browser page shows only Large &amp; Old Files and Duplicates, from the last saved scan.</p><h2>What would be built (1A or 1B)</h2><ul><li>One tab per category with results, plus a summary of sizes.</li><li>Information-only categories (disk health, memory, thermal, login items) are shown with no delete control.</li><li>The nightly run and its email stay as they are, including the plain-text report.</li></ul><h2>Safety work this needs</h2><ul><li>The server must send each item to the cleaner with its category action. The review page does not do this today, which is harmless for its two categories but would try to move the Trash folder itself into the Trash.</li><li>Delete and quit requests need a per-session secret and a check of the address they came from, because the page would be able to delete far more.</li><li>The existing 24px dark readability test covers every new view.</li></ul><h2>Related card</h2><p>N1G8HJ0O (extend the review page to other review categories) is a smaller part of this and can be done whatever you choose here.</p>
+</main>
+<div id="bar"><div class="row">
+  <label style="flex:1">Your reply — click above, then Copy
+    <textarea id="answer" readonly aria-label="Your reply"></textarea>
+  </label>
+  <button id="copy" class="affirm" type="button">Copy</button>
+  <span id="status" role="status"></span>
+</div></div>
+<script>
+(function () {
+  var picks = {}, texts = {};
+
+  function render() {
+    var line = Object.keys(picks).sort(function (a, b) { return a.localeCompare(b, undefined, {numeric: true}); })
+                     .map(function (k) { return k + picks[k]; }).join(' ');
+    var extra = Object.keys(texts).sort().filter(function (k) { return texts[k].trim(); })
+                      .map(function (k) { return k + ': ' + texts[k].trim(); });
+    document.getElementById('answer').value = [line].concat(extra).filter(Boolean).join('\n');
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.opt'), function (b) {
+    b.addEventListener('click', function () {
+      var d = b.dataset.d;
+      Array.prototype.forEach.call(document.querySelectorAll('.opt[data-d="' + d + '"]'),
+        function (o) { o.setAttribute('aria-pressed', 'false'); });
+      b.setAttribute('aria-pressed', 'true');
+      picks[d] = b.dataset.k;
+      render();
+    });
+    if (b.querySelector('.rec')) { b.click(); }     // pre-select the recommendation
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('input[type=text][data-d],textarea[data-d]'), function (i) {
+    i.addEventListener('input', function () { texts[i.dataset.d] = i.value; render(); });
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var ta = document.getElementById('answer'), s = document.getElementById('status');
+    ta.removeAttribute('readonly'); ta.select(); ta.setSelectionRange(0, ta.value.length);
+    function done(ok) {
+      ta.setAttribute('readonly', '');
+      s.textContent = ok ? 'Copied \u2713' : 'Press \u2318C \u2014 it is selected';
+    }
+    // execCommand FIRST: it works with the selection we just made, in every context this page
+    // is opened in. navigator.clipboard is the fallback because it is the one that gets blocked.
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    if (ok) { done(true); return; }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(ta.value).then(function () { done(true); },
+                                                   function () { done(false); });
+    } else { done(false); }
+  });
+
+  render();
+})();
+</script>
+</body></html>
