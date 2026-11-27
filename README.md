@@ -14,6 +14,7 @@ A macOS maintenance tool that scans for junk, reports what it finds, and cleans 
 
 - macOS (Apple Silicon recommended for thermal module)
 - Python 3.11+
+- Google Chrome (the test suite renders the review page and email in it)
 
 ## Setup
 

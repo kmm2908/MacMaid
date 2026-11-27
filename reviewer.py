@@ -23,6 +23,7 @@ def _free_port() -> int:
 
 
 RESULTS_PATH = Path.home() / "Library" / "Logs" / "mac-maid-last-results.json"
+TOKENS_PATH = Path(__file__).with_name("tokens.css")
 
 
 def _persist_results(categories: dict[str, list[dict]]) -> None:
@@ -133,50 +134,55 @@ def serve(categories: dict[str, list[dict]]) -> None:
 
 
 def _html() -> str:
-    return """<!DOCTYPE html>
+    return _PAGE.replace("/*TOKENS*/", TOKENS_PATH.read_text())
+
+
+_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>MacMaid — Review Files</title>
 <style>
-  body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:20px;background:#1a1a1a;color:#e0e0e0;margin:0}
-  #sticky{position:sticky;top:0;z-index:100;background:#1a1a1a;padding-bottom:4px}
-  h1{color:#f0f0f0;margin-bottom:12px;font-size:20px}
-  .tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #333;padding-bottom:0}
-  .tab-btn{padding:6px 16px;border-radius:6px 6px 0 0;border:1px solid #333;border-bottom:none;
-           cursor:pointer;font-size:13px;background:#242424;color:#888;margin-bottom:-2px}
-  .tab-btn.active{background:#1a1a1a;color:#e0e0e0;border-color:#4a9eff;border-bottom:2px solid #1a1a1a;font-weight:600}
-  .tab-btn:hover:not(.active){background:#2e2e2e;color:#ccc}
-  .badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;font-size:11px;background:#333;color:#aaa}
-  .tab-btn.active .badge{background:rgba(74,158,255,.15);color:#4a9eff}
+/*TOKENS*/
+  body{padding-block:16px;margin:0}
+  #sticky{position:sticky;top:0;z-index:100;background:var(--bg);padding-bottom:4px}
+  h1{margin:0 0 12px;font-size:1.25rem}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;border-bottom:2px solid var(--line);padding-bottom:8px}
+  .badge{display:inline-block;margin-left:10px;padding:0 10px;border-radius:12px;border:1px solid var(--on-btn)}
   .controls{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
-  input[type=text]{flex:1;min-width:200px;padding:7px 12px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#e0e0e0;font-size:13px}
-  button{padding:7px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;white-space:nowrap}
-  .btn-trash{background:#c0392b;color:#fff}.btn-trash:disabled{background:#555;cursor:not-allowed}
-  .btn-done{background:#27ae60;color:#fff}
-  .btn-page{background:#333;color:#ccc}.btn-page:disabled{opacity:.4;cursor:not-allowed}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;padding:7px 8px;border-bottom:2px solid #444;cursor:pointer;user-select:none;
-     color:#aaa;white-space:nowrap;position:sticky;top:var(--thead-top,0);background:#1a1a1a;z-index:99}
+  input[type=text]{flex:1;min-width:200px;border-width:2px}
+  input[type=text]::placeholder{color:var(--dim);opacity:1}
+  input[type=checkbox]{width:24px;height:24px}
+  /* Cells wrap anywhere for long paths; a button label must not break mid-word. */
+  td button{white-space:nowrap}
+  /* Dashed, not faded: dimmed letters on a control are refused. */
+  button:disabled{opacity:1;border:2px dashed var(--edge-grey)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);cursor:pointer;user-select:none;
+     position:sticky;top:var(--thead-top,0);background:var(--bg);z-index:99}
   th.no-sort{cursor:default}
-  th:not(.no-sort):hover{color:#fff}
-  td{padding:5px 8px;border-bottom:1px solid #222;white-space:nowrap;max-width:400px;overflow:hidden;text-overflow:ellipsis}
+  th:not(.no-sort):hover{text-decoration:underline}
+  td{padding:5px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
   tr{cursor:pointer}
-  tr:hover td{background:#252525}
+  tr:hover td{background:var(--panel-2)}
   tr.sel td{background:#1e3a52}
   tr.sel:hover td{background:#254a68}
-  .size{text-align:right;font-variant-numeric:tabular-nums}
-  .path{color:#888;font-size:12px}
-  .reveal{cursor:pointer;opacity:.5;font-size:15px;border:none;background:none;color:inherit;padding:0}
-  .reveal:hover{opacity:1}
-  .pager{display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13px;color:#aaa}
-  .summary{margin-top:10px;font-size:13px;color:#aaa;min-height:20px}
-  .freed{color:#27ae60}
-  .err{color:#e74c3c}
-  .si{font-size:9px;margin-left:2px}
-  #count{color:#888;font-size:13px}
-  #toast{position:fixed;bottom:20px;right:20px;background:#555;color:#fff;padding:10px 16px;
-         border-radius:6px;font-size:13px;font-family:sans-serif;display:none;z-index:999}
+  .size{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow-wrap:normal}
+  .path{color:var(--dim)}
+  .pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+  .summary{margin-top:10px;min-height:36px;overflow-wrap:anywhere}
+  .freed{color:var(--ok)}
+  .err{color:var(--bad)}
+  .si{margin-left:4px}
+  #toast{position:fixed;bottom:20px;right:var(--gutter);background:var(--btn-grey);color:var(--on-btn);padding:10px 16px;
+         border:2px solid var(--edge-grey);border-radius:6px;display:none;z-index:999}
+  @media (max-width:900px){
+    #sticky,th{position:static}
+    table,tbody,thead{display:block}
+    tr{display:flex;flex-wrap:wrap;align-items:center;border-bottom:2px solid var(--line)}
+    th,td{border-bottom:0}
+    td.path,td:nth-child(2){flex-basis:100%}
+  }
 </style>
 </head>
 <body>
@@ -185,10 +191,10 @@ def _html() -> str:
 <div class="tabs" id="tabBar"></div>
 <div class="controls">
   <input type="text" id="filter" placeholder="Filter by name or path&#x2026;" oninput="applyFilter()">
-  <button class="btn-trash" id="trashBtn" onclick="moveToTrash()" disabled>
+  <button class="destroy" id="trashBtn" onclick="moveToTrash()" disabled>
     Move to Trash (<span id="selCount">0</span> files, <span id="selSize">0 B</span>)
   </button>
-  <button class="btn-done" onclick="done()">Done</button>
+  <button class="affirm" onclick="done()">Done</button>
   <span id="count"></span>
 </div>
 </div>
@@ -197,9 +203,9 @@ def _html() -> str:
   <tbody id="tbody"></tbody>
 </table>
 <div class="pager">
-  <button class="btn-page" id="prevBtn" onclick="goPage(-1)" disabled>&#x2039; Prev</button>
+  <button class="secondary" id="prevBtn" onclick="goPage(-1)" disabled>&#x2039; Prev</button>
   <span id="pageInfo"></span>
-  <button class="btn-page" id="nextBtn" onclick="goPage(1)" disabled>Next &#x203a;</button>
+  <button class="secondary" id="nextBtn" onclick="goPage(1)" disabled>Next &#x203a;</button>
 </div>
 <div class="summary" id="summary"></div>
 <div id="toast"></div>
@@ -254,10 +260,10 @@ async function init(){
 function renderTabBar(counts){
   var bar=document.getElementById('tabBar');
   bar.innerHTML=Object.keys(tabs).map(function(name){
-    var active=name===currentTab?' active':'';
+    var active=name===currentTab?' active':' secondary';
     var c=tabs[name].loaded?tabs[name].allFiles.length:(counts?counts[name]:tabs[name].count||'...');
     return'<button class="tab-btn'+active+'" data-tab="'+esc(name)+'">'
-      +esc(name)+'<span class="badge">'+(typeof c==='number'?c.toLocaleString():c)+'</span></button>';
+      +(name===currentTab?'\\u25b6 ':'')+esc(name)+'<span class="badge">'+(typeof c==='number'?c.toLocaleString():c)+'</span></button>';
   }).join('');
   bar.querySelectorAll('.tab-btn').forEach(function(btn){
     btn.addEventListener('click',function(){switchTab(this.dataset.tab);});
@@ -321,7 +327,7 @@ function renderTable(){
     tr.addEventListener('click',function(e){if(e.target.closest('button,input'))return;toggleRow(tr);});
     var chk=s.selected.has(f.path)?'checked ':'';
     var cells=cols().map(function(col){return cellHtml(f,col);}).join('');
-    tr.innerHTML='<td><input type="checkbox" '+chk+'></td>'+cells+'<td><button class="reveal" title="Reveal in Finder">&#x1f4c2;</button></td>';
+    tr.innerHTML='<td><input type="checkbox" '+chk+'></td>'+cells+'<td><button class="reveal secondary" title="Reveal in Finder">Show</button></td>';
     tr.querySelector('input').addEventListener('click',function(e){e.stopPropagation();rowChk(this);});
     tr.querySelector('.reveal').addEventListener('click',function(e){e.stopPropagation();reveal(f.path);});
     body.appendChild(tr);
@@ -375,9 +381,9 @@ async function moveToTrash(){
   applyFilter();
 }
 var toastTimer;
-function toast(msg,color){var t=document.getElementById('toast');t.textContent=msg;t.style.background=color||'#555';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display='none';},3000);}
-async function reveal(path){var r=await fetch('/api/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path})});if(!r.ok){var d=await r.json();toast(d.error||'Could not reveal file','#c0392b');}}
-async function done(){await fetch('/api/quit',{method:'POST'});document.body.innerHTML='<p style="padding:40px;color:#aaa;font-family:sans-serif">MacMaid server stopped. You can close this tab.</p>';}
+function toast(msg,color){var t=document.getElementById('toast');t.textContent=msg;t.style.background=color||'var(--btn-grey)';t.style.borderColor=color?'var(--edge-red)':'var(--edge-grey)';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display='none';},3000);}
+async function reveal(path){var r=await fetch('/api/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path})});if(!r.ok){var d=await r.json();toast(d.error||'Could not reveal file','var(--btn-red)');}}
+async function done(){await fetch('/api/quit',{method:'POST'});document.body.innerHTML='<p style="padding:40px 0">MacMaid server stopped. You can close this tab.</p>';}
 init();
 </script>
 </body>

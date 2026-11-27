@@ -18,7 +18,7 @@ dependencies = [
 macmaid = "main:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "playwright>=1.40"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,106 @@
+/* Canonical dark-dashboard tokens. Copy this WHOLE file into any page the user reads.
+ *
+ * THIS FILE IS THE SOURCE OF TRUTH for the hex values. The table in
+ * ~/.claude/CLAUDE.md is a reminder; if the two ever disagree, this wins.
+ *
+ * Every number below was measured with getComputedStyle on a rendered page, not
+ * calculated from source. Re-measure with test_contrast.py before changing any of
+ * them — the defect that produced this file (white on a light red at 2.08:1) sat
+ * inside a palette whose own comment claimed 10:1, because that one pairing had
+ * never been rendered.
+ *
+ * The rules these tokens encode:
+ *   1. A control is a DARK coloured face with WHITE letters. The only other
+ *      permitted pairing is a light face with near-black letters.
+ *   2. A mid-tone face is refused whatever it measures.
+ *   3. Never dim the text on a control. You have to FIND it before you can read
+ *      it, and dimming is the opposite of that.
+ *   4. Every filled face carries a bright 2px edge in its own hue. A dark face on
+ *      a near-black page vanishes — two controls measured 1.08:1 against their own
+ *      panel while their letters were perfectly legible.
+ *   5. Colour is a SECONDARY cue. The label carries the meaning, never the hue.
+ *   6. The page keeps a real gutter. Text that runs to the window edge is the
+ *      complaint this token exists for: 28.8px on a 24px type scale is barely one
+ *      character, and reads as text falling off the screen.
+ */
+:root{
+  /* 24px base, and nothing renders below 1rem. Accessibility floor, not a start.
+     Raised from 20px on 2026-09-03, owner instruction. */
+  font-size:24px;
+
+  /* Outer gutter — the border between the text and the window edge. Owner
+     instruction 2026-09-08, after a page with 1.2rem sides was rejected as having
+     no border at all. Viewport-aware on purpose: a fixed 2rem is generous at
+     1400px and strangling at 390px, where it would leave ~12 characters a line.
+       390px -> 24px   ·   1000px -> 40px   ·   1440px -> 57.6px   ·   >=1600px -> 64px+
+     test_contrast_static.py measures the rendered gap and exits 1 below it. */
+  --gutter:clamp(1rem, 4vw, 4rem);
+
+  /* Surfaces, darkest first. */
+  --bg:#07090c;        /* page */
+  --panel:#11151b;     /* card / panel */
+  --panel-2:#171d25;   /* inset within a panel */
+  --line:#3d4a5a;      /* hairline divider */
+
+  /* Body text. All >= 8.8:1 on every surface above. */
+  --text:#f2f6fa;      /* primary */
+  --dim:#ccd6e2;       /* secondary prose and labels — NOT for controls */
+  --dimmer:#aebdcc;    /* tertiary metadata — NOT for controls */
+
+  /* Bright hues, for edges, focus rings and non-control accents. */
+  --accent:#8fd3ff; --ok:#2bff88; --warn:#ffc24d; --bad:#ff8a94; --purple:#d4b3ff;
+
+  /* CONTROLS — face / edge pairs.        white-on-face   face-on-panel */
+  --btn-blue:#12558c;  --edge-blue:#8fd3ff;   /* 7.7:1        2.4:1  neutral action, link-out */
+  --btn-green:#14663a; --edge-green:#2bff88;  /* 7.0:1        2.6:1  affirmative: approve, confirm */
+  --btn-amber:#8a4a06; --edge-amber:#ffc24d;  /* 6.7:1        2.7:1  caution: send back, withdraw */
+  --btn-red:#a82733;   --edge-red:#ff8a94;    /* 7.1:1        2.6:1  destructive, error badges */
+  --btn-grey:#414f63;  --edge-grey:#aebdcc;   /* 8.2:1        2.2:1  secondary */
+  --on-btn:#ffffff;                           /* every control's letters */
+  --ink:#07090c;                              /* letters on a LIGHT face, if used */
+}
+
+/* The gutter, applied. Copying the :root block alone would leave --gutter unread, and a
+ * token nothing reads is decoration — this rule is why a page that takes the tokens gets a
+ * border for free. Only the INLINE padding: the top and bottom are the page's business.
+ * Careful: a later `padding:` shorthand replaces both halves, so write the block padding as
+ * `padding: <top> var(--gutter) <bottom>` rather than plain `padding: 2rem`. */
+body{ padding-inline:var(--gutter); }
+
+/* Dark only, applied (owner instruction 2026-10-26). Defining --bg and --text paints nothing:
+ * a page that pasted this file and never wrote its own body rule rendered white with a serif
+ * font. So the page colour, text colour and a sans font ship here. `show` exits 6 on a light
+ * page. color-scheme gives scrollbars and form controls their dark versions too. */
+:root{ color-scheme:dark; }
+html, body{ background:var(--bg); color:var(--text); }
+body{ font-family:-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; line-height:1.5; }
+
+/* Reference implementation of the control itself. */
+button, .btn{
+  font-family:inherit; font-size:1rem; cursor:pointer; font-weight:700;
+  background:var(--btn-blue); color:var(--on-btn);
+  border:2px solid var(--edge-blue); border-radius:.5rem; padding:.55rem 1rem;
+}
+button.affirm  { background:var(--btn-green); border-color:var(--edge-green) }
+button.caution { background:var(--btn-amber); border-color:var(--edge-amber) }
+button.destroy { background:var(--btn-red);   border-color:var(--edge-red) }
+button.secondary{background:var(--btn-grey);  border-color:var(--edge-grey) }
+/* Disabled dims the FACE, never the letters — the label must stay readable. */
+button:disabled{ background:var(--btn-grey); border-color:var(--line);
+                 color:var(--on-btn); opacity:.75; cursor:not-allowed }
+button:focus-visible{ outline:3px solid var(--accent); outline-offset:2px }
+
+/* `font: 1rem/1.5 inherit` is INVALID — `inherit` cannot be the family inside the
+ * shorthand, so the browser discards the SIZE with it and the element falls back
+ * to the user-agent default (13.3px). Bare `font: inherit` is fine. Longhand here
+ * on purpose; it is invisible in review and only getComputedStyle shows it. */
+input, textarea, select{
+  font-family:inherit; font-size:1rem; line-height:1.5;
+  color:var(--text); background:var(--panel-2);
+  border:1px solid var(--edge-grey); border-radius:.5rem; padding:.5rem .6rem;
+}
+
+/* Every picture and video on a page he reads fits on one screen (owner instruction 2026-10-19:
+ * "The images are far too big for me to see on one screen"). 55vh leaves room for a question
+ * above and a fixed reply bar below; object-fit keeps the shape when a width is also set. */
+img, video{ max-width:100%; max-height:55vh; object-fit:contain }

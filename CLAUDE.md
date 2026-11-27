@@ -46,6 +46,7 @@ Register new modules in the `MODULES` dict at the top of `main.py`.
 - **Tests patch at the `module.cfg.get` level**, not via removed module-level constants
 - **`reviewer.py` embeds JS in a Python triple-quoted string** — `\'` inside `"""..."""` is just `'`, not an escaped quote; use `data-*` attributes + `addEventListener` instead of inline `onclick` handlers to avoid JS syntax errors
 - **`save_results()` is skipped in dry-run mode** — `unattended_mode()` only writes `mac-maid-last-results.json` when `dry_run=False`
+- **The review page and report email have a rendered readability floor** (24px, 6:1, dark, canonical buttons) — `tests/test_ui_contrast.py` runs `tests/contrast_check.py` (a copy of the dashboard-ui harness) in headless Chrome. The page reads `tokens.css`; the email inlines the same hexes
 - **`--schedule` registers the URL scheme** — re-run `--schedule` after a fresh install to create `~/.local/share/MacMaid.app` and register `macmaid://`
 
 ## Running the App

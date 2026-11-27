@@ -192,6 +192,32 @@ def _start_review_server() -> None:
             time.sleep(0.5)
 
 
+def _report_html(report_text: str, review_url: str | None = None) -> str:
+    """The whole email as a dark 24px document.
+
+    A full document, not a fragment: the global sender inserts its ACTION block just
+    inside <body>, so that block inherits the dark canvas too. Hexes are copied from
+    tokens.css because email clients do not resolve CSS variables.
+    """
+    escaped = report_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    button = ""
+    if review_url:
+        button = (
+            f'<hr style="margin:24px 0;border:0;border-top:1px solid #3d4a5a">'
+            f'<p><a class="btn" role="button" href="{review_url}" style="display:inline-block;padding:12px 24px;'
+            f'background:#12558c;color:#ffffff;border:2px solid #8fd3ff;text-decoration:none;border-radius:12px;'
+            f'font-weight:bold">&#x1f9f9; Review Large Files &rarr;</a></p>'
+            f'<p>Opens on this Mac while MacMaid review server is running.</p>'
+        )
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"></head>'
+        '<body style="margin:0;padding:40px;background:#07090c;color:#f2f6fa;'
+        'font-family:sans-serif;font-size:24px;line-height:1.5">'
+        f'<pre style="font-family:monospace;font-size:24px;white-space:pre-wrap;overflow-wrap:anywhere">{escaped}</pre>'
+        f'{button}</body></html>'
+    )
+
+
 def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_email: bool, dry_run: bool = False) -> None:
     items_to_clean = [
         item
@@ -214,21 +240,12 @@ def unattended_mode(results: list[dict], permanent: bool, to_email: str, no_emai
     history.record(clean_result, dry_run=dry_run)
 
     if not no_email and to_email:
-        has_reviewable = bool(_load_review_categories(results))
-        html_body = None
-        if has_reviewable:
+        review_url = None
+        if _load_review_categories(results):
             _start_review_server()
             review_url = f"http://localhost:{reviewer.REVIEW_PORT}"
             report_text += f"\n\n---\nReview large files: {review_url}"
-            escaped = report_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            html_body = (
-                f'<pre style="font-family:monospace;white-space:pre-wrap">{escaped}</pre>'
-                f'<hr style="margin:20px 0">'
-                f'<p><a href="{review_url}" style="display:inline-block;padding:12px 24px;background:#2980b9;color:#ffffff;'
-                f'text-decoration:none;border-radius:6px;font-family:sans-serif;font-size:15px;font-weight:bold">'
-                f'&#x1f9f9; Review Large Files &rarr;</a></p>'
-                f'<p style="color:#999;font-size:12px;font-family:sans-serif">Opens on this Mac while MacMaid review server is running.</p>'
-            )
+        html_body = _report_html(report_text, review_url)
         prefix = "[DRY RUN] " if dry_run else ""
         subject = f"{prefix}Mac Maid Report — {date.today()} — {reporter.format_size(clean_result.bytes_freed)} freed"
         emailer.send_report(subject, report_text, to_email, html_body=html_body)

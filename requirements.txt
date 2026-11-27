@@ -3,3 +3,4 @@ questionary>=2.0.0
 send2trash>=1.8.0
 pytest>=8.0.0
 flask>=3.0.0
+playwright>=1.40
