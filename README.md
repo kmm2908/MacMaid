@@ -133,6 +133,20 @@ Copy or create `config.json` in the project root. All keys are optional — defa
 
 Set any module to `false` to skip it.
 
+Settings can also be viewed and changed without editing the file:
+
+```bash
+python main.py config                               # every setting, defaults marked
+python main.py config get old_file_days
+python main.py config set old_file_days 90
+python main.py config set modules.thermal false
+python main.py config set scan_paths ~/Downloads ~/Desktop
+python main.py config unset old_file_days           # back to the default
+```
+
+Unknown settings and values that make no sense are refused, and a damaged `config.json`
+is left untouched. Changes apply from the next run, including the scheduled one.
+
 `dev_junk_dormant_days` is how long a project must have gone without a commit before its
 `node_modules` counts as junk. A project is also spared while anything local says it is in
 use — the dependencies were installed recently, a file beside them was edited, or the

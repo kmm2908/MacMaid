@@ -12,6 +12,7 @@ import questionary
 from rich.console import Console
 
 import config as cfg
+import config_cli
 import reporter
 import cleaner as cleaner_mod
 import emailer
@@ -282,7 +283,14 @@ def _load_review_categories(results: list[dict]) -> dict[str, list[dict]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Mac Maid — macOS maintenance tool")
+    # A subcommand with its own options; everything else here is a flag.
+    if sys.argv[1:2] == ["config"]:
+        sys.exit(config_cli.run(sys.argv[2:], list(MODULES)))
+
+    parser = argparse.ArgumentParser(
+        description="Mac Maid — macOS maintenance tool",
+        epilog="View or change settings: main.py config --help",
+    )
     parser.add_argument("--unattended", action="store_true", help="Run silently and email report")
     parser.add_argument("--modules", nargs="+", help="Run specific modules only")
     parser.add_argument("--permanent", action="store_true", help="Delete permanently instead of Trash")

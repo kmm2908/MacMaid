@@ -8,6 +8,7 @@ A macOS maintenance CLI tool. It scans for junk, reports findings with a Rich te
 ```
 main.py          — CLI entry point; orchestrates scan → report → clean flow
 config.py        — JSON config loader with defaults; always read inside scan(), never at module level
+config_cli.py    — `main.py config` show/get/set/unset; a new setting must be added to its key sets
 cleaner.py       — send2trash (default) or permanent delete; returns CleanResult dataclass
 reporter.py      — Rich panels/tables/progress; print_unattended_report() for text reports
 emailer.py       — thin wrapper around ~/.claude/utils/send_email.py
