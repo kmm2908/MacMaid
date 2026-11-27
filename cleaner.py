@@ -1,3 +1,4 @@
+import filecmp
 import os
 import shutil
 import time
@@ -126,6 +127,23 @@ def _unchanged_since_scan(item: dict) -> bool:
         return False
 
 
+def _keeper_intact(item: dict) -> bool:
+    """A duplicate may only go while a separate, identical copy of it remains.
+
+    The keeper can be trashed, edited or replaced by a link between the scan and
+    the click, which would make this the last copy.
+    """
+    keeper: str | None = (item.get("meta") or {}).get("duplicate_of")
+    if keeper is None:
+        return True
+    try:
+        return (not os.path.islink(keeper)
+                and not os.path.samefile(keeper, item["path"])
+                and filecmp.cmp(keeper, item["path"], shallow=False))
+    except OSError:
+        return False
+
+
 def clean_items(items: list[dict], permanent: bool = False,
                 trash_retention_days: int = DEFAULT_TRASH_RETENTION_DAYS) -> CleanResult:
     result = CleanResult()
@@ -148,6 +166,8 @@ def clean_items(items: list[dict], permanent: bool = False,
                 continue
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Not found: {path}")
+            if not _keeper_intact(item):
+                raise OSError("kept: the copy it duplicates is gone or has changed")
             if permanent:
                 if os.path.isdir(path):
                     shutil.rmtree(path)

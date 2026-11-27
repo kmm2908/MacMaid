@@ -45,13 +45,8 @@ def _make_app(categories: dict[str, list[dict]]) -> Flask:
     app = Flask(__name__)
     tab_names = list(categories.keys())
 
-    # Shared path index and per-path category tracking across all tabs
-    path_index: dict[str, dict] = {}
-    path_cat: dict[str, str] = {}
-    for cat_name, items in categories.items():
-        for item in items:
-            path_index[item["path"]] = item
-            path_cat[item["path"]] = cat_name
+    # Shared path index across all tabs; one path can be listed in more than one
+    path_index: dict[str, dict] = {i["path"]: i for items in categories.values() for i in items}
 
     # Mutable per-category lists (deletions splice these in-place)
     cat_lists: dict[str, list[dict]] = {k: list(v) for k, v in categories.items()}
@@ -84,10 +79,9 @@ def _make_app(categories: dict[str, list[dict]]) -> Flask:
         not_found = {p for p, e in result.error_paths if "not found" in e.lower()}
         removed |= not_found
         for p in removed:
-            cat = path_cat.pop(p, None)
             path_index.pop(p, None)
-            if cat and cat in cat_lists:
-                cat_lists[cat] = [i for i in cat_lists[cat] if i["path"] != p]
+        for cat, items in cat_lists.items():
+            cat_lists[cat] = [i for i in items if i["path"] not in removed]
         _persist_results(cat_lists)
         return jsonify({
             "moved": result.moved,
@@ -261,7 +255,7 @@ function renderTabBar(counts){
   var bar=document.getElementById('tabBar');
   bar.innerHTML=Object.keys(tabs).map(function(name){
     var active=name===currentTab?' active':' secondary';
-    var c=tabs[name].loaded?tabs[name].allFiles.length:(counts?counts[name]:tabs[name].count||'...');
+    var c=tabs[name].loaded?tabs[name].allFiles.length:(counts?counts[name]:tabs[name].count);
     return'<button class="tab-btn'+active+'" data-tab="'+esc(name)+'">'
       +(name===currentTab?'\\u25b6 ':'')+esc(name)+'<span class="badge">'+(typeof c==='number'?c.toLocaleString():c)+'</span></button>';
   }).join('');
@@ -332,7 +326,7 @@ function renderTable(){
     tr.querySelector('.reveal').addEventListener('click',function(e){e.stopPropagation();reveal(f.path);});
     body.appendChild(tr);
   });
-  document.getElementById('count').textContent=start+1+'\u2013'+end+' of '+s.filtered.length.toLocaleString()+' files';
+  document.getElementById('count').textContent=(end?start+1+'\u2013'+end:'0')+' of '+s.filtered.length.toLocaleString()+' files';
   document.getElementById('pageInfo').textContent='Page '+(s.page+1)+' / '+pages;
   document.getElementById('prevBtn').disabled=s.page===0;
   document.getElementById('nextBtn').disabled=s.page>=pages-1;
@@ -357,7 +351,10 @@ function goPage(d){var s=st();var pages=Math.ceil(s.filtered.length/PAGE)||1;s.p
 async function moveToTrash(){
   var s=st();
   var paths=Array.from(s.selected);
-  if(!confirm('Move '+paths.length+' file(s) to Trash?'))return;
+  var shown=new Set(s.filtered.map(function(f){return f.path;}));
+  var hidden=paths.filter(function(p){return!shown.has(p);}).length;
+  var warn=hidden?'\\n\\n'+'Hidden by the current filter: '+hidden+'.':'';
+  if(!confirm('Move '+paths.length+' file(s) to Trash?'+warn))return;
   var r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:paths})});
   var res=await r.json();
   bytesFreed+=res.bytes_freed;
@@ -369,16 +366,17 @@ async function moveToTrash(){
     gone.forEach(function(p){t.selected.delete(p);});
   });
   gone.forEach(function(p){delete pathMap[p];});
-  Object.keys(tabs).forEach(function(name){
-    var btn=document.querySelector('.tab-btn[data-tab="'+name+'"]');
-    if(btn){var b=btn.querySelector('.badge');if(b&&tabs[name].loaded)b.textContent=tabs[name].allFiles.length.toLocaleString();}
-  });
   var msg='';
   if(res.bytes_freed>0)msg+='<span class="freed">Freed '+fmt(bytesFreed)+' total this session.</span> ';
   if((res.not_found_paths||[]).length>0)msg+='<span class="err">'+(res.not_found_paths.length)+' file(s) no longer on disk \u2014 removed from list.</span> ';
-  if(res.errors>0)msg+='<span class="err">'+res.errors+' error(s): '+res.error_paths.map(function(e){return esc(e[0]);}).join(', ')+'</span>';
+  if(res.errors>0)msg+='<span class="err">'+res.errors+' error(s): '+res.error_paths.map(function(e){return esc(e[0]+' ('+e[1]+')');}).join(', ')+'</span>';
   document.getElementById('summary').innerHTML=msg||'Done.';
   applyFilter();
+  renderTabBar();
+  // The server's counts also cover tabs that have not been opened yet.
+  var counts=await(await fetch('/api/tabs')).json();
+  Object.keys(tabs).forEach(function(name){tabs[name].count=counts[name];});
+  renderTabBar();
 }
 var toastTimer;
 function toast(msg,color){var t=document.getElementById('toast');t.textContent=msg;t.style.background=color||'var(--btn-grey)';t.style.borderColor=color?'var(--edge-red)':'var(--edge-grey)';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display='none';},3000);}

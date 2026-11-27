@@ -20,6 +20,10 @@ def scan() -> dict:
     scan_paths = [os.path.expanduser(p) for p in (cfg.get("scan_paths") or ["~/Downloads"])]
     hash_map: dict[str, list[dict]] = defaultdict(list)
 
+    # One entry per real file: overlapping scan paths and hard links reach the same
+    # inode twice, and listing it as a duplicate would offer up the only copy.
+    seen: set[tuple[int, int]] = set()
+
     for base in scan_paths:
         if not os.path.isdir(base):
             continue
@@ -27,16 +31,22 @@ def scan() -> dict:
             for f in filenames:
                 fp = os.path.join(dirpath, f)
                 try:
+                    # A symlink is not a copy; trashing its target would lose the data.
+                    if os.path.islink(fp):
+                        continue
                     stat = os.stat(fp)
-                    if stat.st_size == 0:
+                    inode = (stat.st_dev, stat.st_ino)
+                    if stat.st_size == 0 or inode in seen:
                         continue
                     digest = _md5(fp)
                     if digest:
+                        seen.add(inode)
                         hash_map[digest].append({
                             "path": fp,
                             "size": stat.st_size,
                             "mtime": stat.st_mtime,
                             "label": f,
+                            "linked": stat.st_nlink > 1,
                         })
                 except OSError:
                     pass
@@ -45,9 +55,10 @@ def scan() -> dict:
     for digest, files in hash_map.items():
         if len(files) < 2:
             continue
-        # Sort by mtime descending — keep newest, flag the rest
-        files.sort(key=lambda x: x["mtime"], reverse=True)
-        for dup in files[1:]:
+        # Keep a hard-linked file if there is one, else the newest; flag the rest.
+        # Trashing one name of a hard-linked file frees nothing, so none is offered.
+        files.sort(key=lambda x: (x["linked"], x["mtime"]), reverse=True)
+        for dup in (f for f in files[1:] if not f["linked"]):
             items.append(make_item(
                 dup["path"], dup["size"], dup["label"],
                 meta={"duplicate_of": files[0]["path"]}
@@ -59,6 +70,6 @@ def scan() -> dict:
         "Duplicates",
         "review",
         action="trash",
-        suggestion=f"{len(items)} duplicate files found ({size_mb:.0f} MB) — newest copy kept",
+        suggestion=f"{len(items)} duplicate files found ({size_mb:.0f} MB) — one copy of each kept",
         items=items,
     )

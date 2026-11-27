@@ -93,3 +93,16 @@ def test_delete_unknown_path_returns_zero_moved(tmp_path):
         )
 
     assert resp.get_json()["moved"] == 0
+
+
+def test_delete_removes_a_shared_path_from_every_tab(tmp_path):
+    app = reviewer._make_app({"Large & Old Files": SAMPLE_ITEMS, "Duplicates": SAMPLE_ITEMS[:1]})
+    client = app.test_client()
+    gone = SAMPLE_ITEMS[0]["path"]
+    fake_result = cleaner.CleanResult(moved=1, moved_paths=[gone])
+    with patch("reviewer.cleaner_mod.clean_items", return_value=fake_result), \
+         patch("reviewer.RESULTS_PATH", tmp_path / "results.json"):
+        client.post("/api/delete", json={"paths": [gone]})
+
+    assert client.get("/api/files/Duplicates").get_json() == []
+    assert client.get("/api/files/Large%20%26%20Old%20Files").get_json() == SAMPLE_ITEMS[1:]
