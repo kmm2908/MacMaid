@@ -17,6 +17,8 @@ import os
 import subprocess
 import time
 
+import pytest
+
 from modules import dev_junk
 
 GIT_ID = ["-c", "user.email=t@example.com", "-c", "user.name=Test"]
@@ -177,18 +179,21 @@ def test_inherited_git_dir_cannot_vouch_for_a_directory(tmp_path, monkeypatch):
     assert _paths(outside) == []
 
 
-def test_marker_excludes_a_fully_tracked_installed_checkout(tmp_path):
-    """Causally exercise the `.vscode` marker: this extension is a real checkout
-    with a TRACKED package.json, so the tracked-name test alone would offer it
+@pytest.mark.parametrize(
+    "editor_dir", [".vscode", ".vscode-insiders", ".vscode-server-insiders"])
+def test_marker_excludes_a_fully_tracked_installed_checkout(tmp_path, editor_dir):
+    """Causally exercise the editor markers: this extension is a real, dormant
+    checkout with a COMMITTED package.json, so every other rule would offer it
     and only the marker list declines it."""
     root = _repo(str(tmp_path))
     wanted = _project(root, "myproject")
-    ext = os.path.join(root, ".vscode", "extensions", "publisher.ext-1.2.3")
+    ext = os.path.join(root, editor_dir, "extensions", "publisher.ext-1.2.3")
     _repo(ext)
     _file(ext, "package.json", '{"name": "ext"}')
     _git(ext, "add", "package.json")
+    _git(ext, "commit", "-qm", "ext")
     _file(os.path.join(ext, "node_modules", "dep"), "index.js")
-    _age_tree(os.path.join(root, ".vscode"))
+    _age_tree(os.path.join(root, editor_dir))
 
     assert _paths(root) == [wanted]
 
@@ -790,3 +795,55 @@ def test_a_translated_git_error_is_still_an_ordinary_no(tmp_path, monkeypatch):
 
     assert result["items"] == []
     assert "incomplete" not in result["suggestion"], result["suggestion"]
+
+
+@pytest.mark.parametrize("pyc", ["mod.pypy39.pyc", "mod.pypy310.opt-1.pyc",
+                                 "mod.pypy39-pytest-9.0.3.pyc",
+                                 "mod.cpython-312-pytest-9.0.3.pyc",
+                                 "mod.pypy39-pytest-9.0.0rc1.pyc",
+                                 "mod.cpython-312-pytest-9.1.0.dev0.pyc",
+                                 "mod.pypy39-pytest-9.1.0.dev12+g1a2b3c.pyc"])
+def test_loose_tagged_bytecode_with_tracked_source_offered(tmp_path, pyc):
+    """PyPy tags carry no hyphen after the interpreter name (`pypy39`), and
+    pytest appends its own dotted version to either interpreter's tag."""
+    root = _repo(str(tmp_path))
+    _file(root, "mod.py", "x = 1\n")
+    _git(root, "add", "mod.py")
+    _file(root, pyc)
+
+    assert _paths(root) == [os.path.join(root, pyc)]
+
+
+def test_mixed_cpython_and_pypy_cache_offered(tmp_path):
+    root = _repo(str(tmp_path))
+    _file(root, "mod.py", "x = 1\n")
+    _git(root, "add", "mod.py")
+    cache = os.path.join(root, "__pycache__")
+    _file(cache, "mod.cpython-312.pyc")
+    _file(cache, "mod.pypy39.pyc")
+
+    assert _paths(root) == [cache]
+
+
+def test_pypy_bytecode_without_its_own_source_not_offered(tmp_path):
+    root = _repo(str(tmp_path))
+    _file(root, "pkg.py", "x = 1\n")
+    _git(root, "add", "pkg.py")
+    _file(root, "pkg.mod.pypy39.pyc")
+    _file(root, "stale.pypy39-pytest-9.0.3.pyc")
+
+    assert _paths(root) == []
+
+
+@pytest.mark.parametrize("pyc", ["mod.pypy39-debug.pyc",
+                                 "mod.pypy39-pytest-x.pyc",
+                                 "mod.pypy3-anything.pyc"])
+def test_numbered_pypy_tag_with_unknown_suffix_not_offered(tmp_path, pyc):
+    """An unrecognised suffix is not an interpreter tag, so a tracked `mod.py`
+    must not authorise deleting it."""
+    root = _repo(str(tmp_path))
+    _file(root, "mod.py", "x = 1\n")
+    _git(root, "add", "mod.py")
+    _file(root, pyc)
+
+    assert _paths(root) == []

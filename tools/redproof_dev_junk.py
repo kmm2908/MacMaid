@@ -68,7 +68,12 @@ MUTANTS = [
       "test_finds_node_modules",
       "test_installed_extension_inside_a_repo_not_offered",
       "test_installed_software_that_is_itself_a_checkout_not_offered",
-      "test_marker_excludes_a_fully_tracked_installed_checkout",
+      "test_marker_excludes_a_fully_tracked_installed_checkout"
+      "[.vscode]",
+      "test_marker_excludes_a_fully_tracked_installed_checkout"
+      "[.vscode-insiders]",
+      "test_marker_excludes_a_fully_tracked_installed_checkout"
+      "[.vscode-server-insiders]",
       "test_home_install_root_excludes_a_tracked_checkout",
       "test_node_modules_outside_any_repo_not_offered",
       "test_empty_git_marker_is_not_a_repository",
@@ -144,11 +149,8 @@ MUTANTS = [
 
     ("the cleaner stops re-checking before it deletes",
      "cleaner.py",
-     "            if not _unchanged_since_scan(item):\n"
-     "                result.skipped += 1\n"
-     "                result.changed_paths.append(path)\n"
-     "                continue\n",
-     "",
+     "if not _unchanged_since_scan(item) or not _still_allowed(item):",
+     "if not _still_allowed(item):",
      ["test_a_directory_written_to_since_the_scan_is_not_cleaned"]),
     ("the baseline read AFTER the size walk, so an install during it closes the race",
      "modules/dev_junk.py",

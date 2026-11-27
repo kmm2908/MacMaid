@@ -32,7 +32,8 @@ def _dir_size(path: str) -> int:
 # software installs itself to. Matched as path segments, case-insensitively,
 # against the RESOLVED path so a relative root or a symlink cannot slip past.
 INSTALLED_SOFTWARE_MARKERS = (
-    "/.vscode/", "/.vscode-server/", "/.cursor/", "/.codex/", "/.claude/plugins/",
+    "/.vscode/", "/.vscode-server/", "/.vscode-insiders/",
+    "/.vscode-server-insiders/", "/.cursor/", "/.codex/", "/.claude/plugins/",
     "/.npm/", "/.nvm/", "/.bun/", "/.deno/", "/.cache/", "/.cargo/", "/.gem/",
     "/.pyenv/", "/.rbenv/", "/.nodenv/", "/.oh-my-zsh/", "/.krew/",
     "/.local/share/", "/.local/lib/", "/.local/bin/",
@@ -368,8 +369,16 @@ def _worked_on_recently(parent: str, window: float, cache: dict) -> bool:
 # would map `pkg.mod.cpython-312.pyc` to `pkg.py`, letting a tracked `pkg.py`
 # authorise deletion of bytecode belonging to a `pkg.mod.py` that no longer
 # exists — the exact source-stripped case this rule is for.
+# PyPy writes `pypy39`: no hyphen, and nothing may follow the digits but the
+# suffixes below. pytest appends its version verbatim, pre-releases included:
+# `cpython-312-pytest-9.1.0.dev0`.
+_PYTEST_SUFFIX = (
+    r"-pytest-\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"
+    r"(?:\+[0-9a-z]+(?:\.[0-9a-z]+)*)?"
+)
 _CACHE_TAG = re.compile(
-    r"\.(?:cpython|pypy|jython|ironpython|graalpy)-[^.]+(?:\.opt-\d+)?$",
+    r"\.(?:(?:cpython|pypy|jython|ironpython|graalpy)-[^.]+?|pypy\d+)"
+    rf"(?:{_PYTEST_SUFFIX})?(?:\.opt-\d+)?$",
     re.IGNORECASE,
 )
 
