@@ -13,6 +13,10 @@ STORAGE_PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/com.macmaid.stor
 STORAGE_INTERVAL_SECONDS = 3600
 
 
+class LauncherNotRemoved(Exception):
+    """The schedule went, but the app that may hold Full Disk Access is still there."""
+
+
 def _resolve_python() -> str:
     """Return the Python executable to embed in the LaunchAgent plist.
 
@@ -122,7 +126,13 @@ def uninstall() -> bool:
         except OSError:
             return False
         found = True
-    fda_launcher.remove()
+    try:
+        fda_launcher.remove()
+    except OSError as e:
+        raise LauncherNotRemoved(
+            f"Any schedule was removed, but MacMaid Storage Check could not be moved to the Trash ({e}). "
+            f"It may still have Full Disk Access, so move it to the Trash yourself: {fda_launcher.APP_DIR}"
+        ) from e
     return found
 
 

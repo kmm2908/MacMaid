@@ -1,4 +1,7 @@
 from unittest.mock import patch, MagicMock
+
+import pytest
+
 import scheduler
 
 
@@ -47,3 +50,20 @@ def test_status_says_storage_check_is_off_when_launchd_has_not_loaded_it(tmp_pat
          patch.object(scheduler, "STORAGE_PLIST_PATH", str(storage)), \
          patch("scheduler.subprocess.run", return_value=MagicMock(returncode=113)):
         assert "storage check not loaded" in scheduler.status()
+
+
+def test_a_storage_check_app_that_cannot_be_binned_is_reported(tmp_path, capsys):
+    nightly = tmp_path / "n.plist"
+    nightly.write_text("x")
+    import main
+    with patch.object(scheduler, "PLIST_PATH", str(nightly)), \
+         patch.object(scheduler, "STORAGE_PLIST_PATH", str(tmp_path / "none.plist")), \
+         patch("scheduler.subprocess.run"), \
+         patch("scheduler.fda_launcher.remove", side_effect=PermissionError("nope")), \
+         patch.object(main.sys, "argv", ["main.py", "--unschedule"]), \
+         pytest.raises(SystemExit) as stopped:
+        main.main()
+    assert stopped.value.code == 1
+    assert not nightly.exists()
+    said = " ".join(capsys.readouterr().out.split())
+    assert "schedule was removed" in said and "MacMaid Storage Check" in said

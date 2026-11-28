@@ -151,8 +151,8 @@ MUTANTS = [
     ("the cleaner stops re-checking before it deletes",
      "cleaner.py",
      "if (not _unchanged_since_scan(item) or not _still_allowed(item)\n"
-     "                    or not _repo_still_quiet(item)):",
-     "if not _still_allowed(item) or not _repo_still_quiet(item):",
+     "                    or not _repo_still_quiet(item, recheck_budget)):",
+     "if not _still_allowed(item) or not _repo_still_quiet(item, recheck_budget):",
      ["test_a_directory_written_to_since_the_scan_is_not_cleaned"]),
     ("the baseline read AFTER the size walk, so an install during it closes the race",
      "modules/dev_junk.py",
@@ -222,7 +222,7 @@ MUTANTS = [
      ["test_age_and_status_are_asked_once_per_repository"]),
     ("the cleaner trusts the scan's cached answer instead of asking again",
      "cleaner.py",
-     "                    or not _repo_still_quiet(item)):",
+     "                    or not _repo_still_quiet(item, recheck_budget)):",
      "                    ):",
      ["test_an_edit_after_the_scan_spares_every_package_in_the_repository",
       "test_a_tracked_edit_after_the_scan_is_seen_however_old_the_file",
@@ -232,9 +232,9 @@ MUTANTS = [
 
     ("the re-check reuses one cache across packages, so A's answer stands for B",
      "modules/dev_junk.py",
-     "    return _is_project_junk(name, parent, _new_cache())",
-     "    return _is_project_junk(\n"
-     "        name, parent, still_project_junk.__dict__.setdefault('c', _new_cache()))",
+     "    cache = _new_cache()\n    if budget is not None:",
+     "    cache = still_project_junk.__dict__.setdefault('c', _new_cache())\n"
+     "    if budget is not None:",
      ["test_the_cleaner_asks_git_again_rather_than_reusing_a_scan_answer"]),
 
     ("the scan stops telling the cleaner which project to re-check",
@@ -302,7 +302,9 @@ def _run_suite(where: str) -> tuple:
         # -rfEs, not "-rf -rs": a second -r REPLACES the first, and the run then
         # prints no FAILED lines at all — which reads exactly like a mutant
         # nothing caught.
-        [PYTEST, "tests/", "--tb=no", "-q", "-rfEs", "-p", "no:cacheprovider"],
+        # The anchor test reads the mutated source, so it would redden every mutant by itself.
+        [PYTEST, "tests/", "--ignore=tests/test_redproof_anchors.py",
+         "--tb=no", "-q", "-rfEs", "-p", "no:cacheprovider"],
         cwd=where, capture_output=True, text=True,
     )
     red = {line.split("::")[-1].split(" ")[0] for line in r.stdout.splitlines()
@@ -334,7 +336,7 @@ def main() -> int:
         for label, rel, old, new, expected in MUTANTS:
             src = os.path.join(work, rel)
             pristine = open(os.path.join(ROOT, rel), encoding="utf-8").read()
-            if old not in pristine:
+            if pristine.count(old) != 1:
                 print(f"BAD  anchor moved, mutant never applied: {label}")
                 ok = False
                 continue

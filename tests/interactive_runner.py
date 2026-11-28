@@ -27,7 +27,7 @@ trash.VOLUMES_DIR = os.path.join(ROOT, "volumes")
 base.added_time = lambda path: os.lstat(path).st_mtime
 login_items._run_osascript = lambda: ""
 thermal._has_passwordless_sudo = lambda: False
-main.ERROR_LOG_PATH = main.Path(ROOT) / "error.log"
+main.cleaner_mod.ERROR_LOG_PATH = main.Path(ROOT) / "error.log"
 
 
 def _fake_send2trash(path: str) -> None:

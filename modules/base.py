@@ -1,4 +1,5 @@
 import ctypes
+import hashlib
 import os
 import stat
 import struct
@@ -124,6 +125,37 @@ def newest_mtime(path: str, strict: bool = False) -> float:
                 if strict:
                     raise
     return newest
+
+
+def _tree_digest(path: str) -> str:
+    digest = hashlib.sha256()
+
+    def add(full: str) -> None:
+        info = os.lstat(full)
+        digest.update(b"%s\0%d %d %d %d %d\0" % (
+            os.fsencode(os.path.relpath(full, path)), info.st_mode, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns, info.st_ino))
+
+    add(path)
+    for dirpath, dirnames, filenames in os.walk(path, onerror=_raise):
+        dirnames.sort()
+        for name in sorted(dirnames + filenames):
+            add(os.path.join(dirpath, name))
+    return digest.hexdigest()
+
+
+def tree_state(path: str) -> str:
+    """Fingerprint of a folder and all inside it: names, kinds, sizes, times and inodes.
+
+    The newest mtime alone misses any change made behind a future-dated file. The
+    change time is included because a rewrite can put the old mtime back.
+    Read twice: one walk misses what arrives in a folder it has already passed.
+    Raises OSError if anything cannot be read, or the two readings differ.
+    """
+    first = _tree_digest(path)
+    if _tree_digest(path) != first:
+        raise OSError(f"changed while being read: {path}")
+    return first
 
 
 def make_item(path: str, size_bytes: int, label: str, meta: dict | None = None) -> dict:

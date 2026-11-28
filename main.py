@@ -19,6 +19,7 @@ import config as cfg
 import config_cli
 import reporter
 import cleaner as cleaner_mod
+from cleaner import log_errors
 import emailer
 import scheduler
 import history
@@ -36,29 +37,8 @@ console = Console()
 RESULTS_PATH = Path.home() / "Library" / "Logs" / "mac-maid-last-results.json"
 
 
-ERROR_LOG_PATH = Path.home() / "Library" / "Logs" / "mac-maid-error.log"
-
-
 def save_results(results: list[dict]) -> None:
     RESULTS_PATH.write_text(json.dumps(results))
-
-
-def log_errors(clean_result) -> None:
-    """Append per-path failures so a rising error count can be diagnosed.
-
-    error_paths was collected and discarded, which is why 602 nightly failures
-    went unnoticed with an empty error log.
-    """
-    if not clean_result.error_paths:
-        return
-    stamp = date.today().isoformat()
-    try:
-        ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(ERROR_LOG_PATH, "a") as f:
-            for path, err in clean_result.error_paths:
-                f.write(f"{stamp}\t{path}\t{err}\n")
-    except OSError:
-        pass  # logging must never break the run
 
 
 MODULES = {
@@ -369,7 +349,11 @@ def main() -> None:
         return
 
     if args.unschedule:
-        ok = scheduler.uninstall()
+        try:
+            ok = scheduler.uninstall()
+        except scheduler.LauncherNotRemoved as e:
+            console.print(str(e), style="red", markup=False)
+            sys.exit(1)
         console.print("[green]Unscheduled[/green]" if ok else "[yellow]No schedule found[/yellow]")
         return
 

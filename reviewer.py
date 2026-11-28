@@ -223,6 +223,7 @@ def _make_app(categories: dict[str, list[dict]],
                 return jsonify({"error": WHOLE_MAIL_UNCONFIRMED}), 400
             result = cleaner_mod.clean_items(to_clean, permanent=False,
                                              trash_retention_days=_retention_days())
+            cleaner_mod.log_errors(result)
             # An emptied Trash folder stays listed while anything in it could not be removed.
             failed = [p for p, _ in result.error_paths]
             removed = {p for p in result.moved_paths or []

@@ -1,7 +1,7 @@
 import os
 import plistlib
 from datetime import datetime
-from modules.base import make_result, make_item, newest_mtime
+from modules.base import make_result, make_item, tree_state
 
 BACKUP_DIR = os.path.expanduser("~/Library/Application Support/MobileSync/Backup")
 
@@ -34,18 +34,21 @@ def scan() -> dict:
         )
 
     items = []
+    unread = 0
     try:
         entries = os.listdir(BACKUP_DIR)
     except OSError:
-        entries = []
+        return make_result("iOS Backups", "review", action="trash",
+                           suggestion="The iPhone backup folder could not be read, so nothing is offered")
 
     for name in entries:
         full = os.path.join(BACKUP_DIR, name)
         if not os.path.isdir(full):
             continue
         try:
-            seen = newest_mtime(full)  # before sizing, as in mail.py
+            seen = tree_state(full)  # before sizing, as in mail.py
         except OSError:
+            unread += 1
             continue
         size = _dir_size(full)
         info = _read_info(full)
@@ -61,16 +64,19 @@ def scan() -> dict:
                 date_str = "unknown"
         label = f"{device} — last backup {date_str}"
         items.append(make_item(full, size, label, meta={"last_backup": date_str, "device": device,
-                                                  "tree_mtime": seen}))
+                                                  "tree_state": seen}))
 
     items.sort(key=lambda x: x["meta"].get("last_backup", ""), reverse=True)
     total = sum(i["size_bytes"] for i in items)
     size_gb = total / (1024 ** 3)
 
+    suggestion = f"{len(items)} backup(s) found ({size_gb:.1f} GB) — remove old devices or duplicates only"
+    if unread:
+        suggestion += f". {unread} backup(s) could not be read fully, or changed while being read, and are not offered"
     return make_result(
         "iOS Backups",
         "review",
         action="trash",
-        suggestion=f"{len(items)} backup(s) found ({size_gb:.1f} GB) — remove old devices or duplicates only",
+        suggestion=suggestion,
         items=items,
     )

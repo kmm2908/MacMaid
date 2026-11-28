@@ -292,3 +292,13 @@ def test_the_real_mail_folder_is_guarded_whatever_its_category_is_called():
             resp = post(client, "/api/delete", {"tab": "Large & Old Files", "paths": ["/Users/x/Library/Mail"]})
     assert resp.status_code == 400
     clean.assert_not_called()
+
+
+def test_a_failed_browser_clean_is_written_to_the_error_log(scanned, tmp_path):
+    client, _ = scanned
+    failed = cleaner.CleanResult(errors=1, error_paths=[("/c/a", "[Errno 1] Operation not permitted")])
+    log = tmp_path / "error.log"
+    with patch("reviewer.cleaner_mod.clean_items", return_value=failed), \
+         patch("cleaner.ERROR_LOG_PATH", log):
+        assert post(client, "/api/delete", {"tab": "Caches", "paths": ["/c/a"]}).status_code == 200
+    assert "/c/a\t[Errno 1] Operation not permitted" in log.read_text()

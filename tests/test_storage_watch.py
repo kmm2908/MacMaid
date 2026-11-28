@@ -19,6 +19,15 @@ def _no_real_tmutil():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _a_report_address():
+    """The owner's own setting may be blank, which sends no email at all."""
+    real = sw.cfg.get
+    with patch.object(sw.cfg, "get",
+                      side_effect=lambda k: "me@example.com" if k == "email_report_to" else real(k)):
+        yield
+
+
 def test_level_is_ok_at_or_above_the_warning_line():
     assert sw.level(30 * GB, 25, 10) == "ok"
     assert sw.level(25 * GB, 25, 10) == "ok"
@@ -283,7 +292,7 @@ def test_partial_folder_is_ranked_by_its_minimum(tmp_path):
 
 def test_blocked_folder_adds_the_full_disk_access_explanation(tmp_path):
     with patch.object(sw.fda_launcher, "EXECUTABLE", tmp_path / "absent"):
-        body = _body([("Mail", sw.Measure(None, complete=False, blocked=True))])
+        body = _body([("Mail", sw.Measure(None, complete=False, blocked=True, refused=True))])
     assert "Full Disk Access" in body and sw.sys.executable in body
 
 
@@ -333,3 +342,59 @@ def test_a_refusal_that_is_not_valid_text_does_not_stop_the_alert(tmp_path, monk
     sw.notify("title", "message")
     assert "refused" in capsys.readouterr().out
 
+
+
+def test_a_blank_report_address_sends_no_email_and_counts_as_delivered(tmp_path):
+    state_path = tmp_path / "state.json"
+    notes = []
+    with patch.object(sw, "STATE_PATH", state_path), \
+         patch.object(sw, "free_bytes", return_value=20 * GB), \
+         patch.object(sw, "top_users") as measured, \
+         patch.object(sw.emailer, "send_report") as send, \
+         patch.object(sw, "notify", side_effect=lambda t, m: notes.append(m) or True), \
+         patch.object(sw.cfg, "get", side_effect=lambda k: "" if k == "email_report_to" else sw.cfg.DEFAULTS[k]):
+        sw.check(now=NOW)
+        sw.check(now=NOW + timedelta(hours=1))
+    send.assert_not_called()
+    measured.assert_not_called()
+    assert len(notes) == 1 and "email" not in notes[0]
+    assert json.loads(state_path.read_text())["level"] == "warn"
+
+
+@pytest.mark.parametrize("users", [
+    [("Caches", sw.Measure(4 * GB, complete=False, blocked=True))],
+    [("Caches", sw.Measure(None, complete=False, blocked=True))],
+    [("Mail", sw.Measure(3 * GB, complete=False, blocked=True))],
+    [("Mail", sw.Measure(GB // 20, complete=False, blocked=True))],
+])
+def test_no_full_disk_access_note_for_a_partly_readable_folder(users):
+    assert "Full Disk Access" not in _body(users)
+
+
+@pytest.mark.parametrize("name", ["Trash", "Mail", "iPhone backups"])
+def test_a_wholly_blocked_protected_folder_adds_the_note(name):
+    assert "Full Disk Access" in _body([(name, sw.Measure(0, complete=False, blocked=True, refused=True))])
+
+
+@pytest.mark.parametrize("mode, refused", [(0o000, True), (0o755, False)])
+def test_only_a_folder_that_cannot_be_listed_counts_as_refused(tmp_path, mode, refused):
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    folder.chmod(mode)
+    try:
+        with _du(1, "0\t/x\n", "du: /x: Operation not permitted\n"):
+            assert sw._measure(folder).refused is refused
+    finally:
+        folder.chmod(0o755)
+
+
+def test_a_blank_address_alert_whose_banner_failed_is_retried(tmp_path):
+    state_path = tmp_path / "state.json"
+    with patch.object(sw, "STATE_PATH", state_path), \
+         patch.object(sw, "free_bytes", return_value=20 * GB), \
+         patch.object(sw.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "no")) as run, \
+         patch.object(sw.cfg, "get", side_effect=lambda k: "" if k == "email_report_to" else sw.cfg.DEFAULTS[k]):
+        sw.check(now=NOW)
+        sw.check(now=NOW + timedelta(hours=1))
+    assert run.call_count == 2
+    assert not state_path.exists()

@@ -1,5 +1,6 @@
 """Hourly low-storage check: alert before macOS starts force-quitting apps to free space."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,8 @@ import fda_launcher
 GB = 1_000_000_000
 STATE_PATH = Path.home() / "Library" / "Logs" / "mac-maid-storage-state.json"
 DU_TIMEOUT_SECONDS = 120
+# Folders macOS refuses outright without Full Disk Access
+PROTECTED_FOLDERS = {"Trash", "Mail", "iPhone backups"}
 SEVERITY = {"ok": 0, "warn": 1, "urgent": 2}
 
 HOME = Path.home()
@@ -60,6 +63,17 @@ class Measure(NamedTuple):
     complete: bool = True
     blocked: bool = False
     timed_out: bool = False
+    refused: bool = False  # the folder itself cannot be listed
+
+
+def _refused(path: Path) -> bool:
+    try:
+        with os.scandir(path):
+            return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 
 
 def _measure(path: Path) -> Measure:
@@ -77,7 +91,8 @@ def _measure(path: Path) -> Measure:
         size = int(done.stdout.split()[0]) * 1024
     except (ValueError, IndexError):
         size = None
-    return Measure(size, complete=done.returncode == 0 and size is not None, blocked=blocked)
+    return Measure(size, complete=done.returncode == 0 and size is not None, blocked=blocked,
+                   refused=blocked and _refused(path))
 
 
 def _size_text(measure: Measure) -> str:
@@ -123,7 +138,8 @@ def _snapshot_lines() -> list[str]:
                 "their space until those snapshots are thinned."]
 
 
-def notify(title: str, message: str) -> None:
+def notify(title: str, message: str) -> bool:
+    """Show a banner. False if macOS did not take it."""
     # AppleScript cannot read \uXXXX escapes, so non-ASCII text has to go in as it is.
     text, heading = (json.dumps(value, ensure_ascii=False) for value in (message, title))
     script = f"display notification {text} with title {heading}"
@@ -133,9 +149,11 @@ def notify(title: str, message: str) -> None:
                               timeout=10, check=False)
     except (subprocess.TimeoutExpired, OSError) as exc:
         print(f"storage_watch: notification failed: {exc}")
-        return
+        return False
     if done.returncode != 0:
         print(f"storage_watch: notification failed: {done.stderr.strip()}")
+        return False
+    return True
 
 
 def _load_state() -> dict:
@@ -183,6 +201,10 @@ def _gb(n: float) -> str:
 
 
 def _alert(current: str, free: int) -> bool:
+    to = cfg.get("email_report_to") or ""
+    if not to:
+        # A blank address means no email. The banner is then the whole alert.
+        return notify("MacMaid — disk nearly full", f"{_gb(free)} free.")
     todo = "Empty the Trash if nothing in it is still needed, then look through the largest folder listed"
     notify("MacMaid — disk nearly full", f"{_gb(free)} free. Details are in your email.")
     users = top_users()
@@ -190,12 +212,12 @@ def _alert(current: str, free: int) -> bool:
     lines = [f"Free space on the main disk: {_gb(free)}.", "",
              "Sizes of selected common folders (Trash first: it holds files you have already deleted once):"]
     lines += [f"  {name}: {_size_text(measure)}" for name, measure in users]
-    if any(measure.blocked for _, measure in users):
+    if any(name in PROTECTED_FOLDERS and measure.refused for name, measure in users):
         lines += ["", "macOS blocks this hourly check from some folders. You can leave it that way.", *_access_lines()]
     lines += _snapshot_lines()
     lines += ["", "Below about 10 GB macOS starts force-quitting apps to reclaim space."]
     kind = {"urgent": todo} if current == "urgent" else {"action": todo}
-    return emailer.send_report(subject, "\n".join(lines), cfg.get("email_report_to") or "", **kind)
+    return emailer.send_report(subject, "\n".join(lines), to, **kind)
 
 
 def check(now: datetime | None = None) -> str:

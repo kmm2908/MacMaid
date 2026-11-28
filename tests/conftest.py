@@ -2,8 +2,15 @@ import os
 
 import pytest
 
+import cleaner
 from modules import base
 from modules.dev_junk import _GIT_ENV_STRIP
+
+
+@pytest.fixture(autouse=True)
+def _error_log_in_tmp(tmp_path_factory, monkeypatch):
+    """A failed clean in a test must not be written to the real error log."""
+    monkeypatch.setattr(cleaner, "ERROR_LOG_PATH", tmp_path_factory.mktemp("log") / "error.log")
 
 
 @pytest.fixture

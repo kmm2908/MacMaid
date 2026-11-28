@@ -4,13 +4,16 @@ import os
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
 from send2trash import send2trash
 
 from modules import dev_junk
-from modules.base import binned_before, newest_mtime
+from modules.base import binned_before, tree_state
 from modules.downloads import is_protected
 
 DEFAULT_TRASH_RETENTION_DAYS = 7
+ERROR_LOG_PATH = Path.home() / "Library" / "Logs" / "mac-maid-error.log"
 
 
 @dataclass
@@ -22,6 +25,24 @@ class CleanResult:
     moved_paths: list = field(default_factory=list)
     skipped: int = 0
     changed_paths: list = field(default_factory=list)
+
+
+def log_errors(clean_result: CleanResult) -> None:
+    """Append per-path failures so a rising error count can be diagnosed.
+
+    error_paths was collected and discarded, which is why 602 nightly failures
+    went unnoticed with an empty error log.
+    """
+    if not clean_result.error_paths:
+        return
+    stamp = date.today().isoformat()
+    try:
+        ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(ERROR_LOG_PATH, "a", encoding="utf-8", errors="backslashreplace") as f:
+            for path, err in clean_result.error_paths:
+                f.write(f"{stamp}\t{path}\t{err}\n")
+    except OSError:
+        pass  # logging must never break the run
 
 
 def plan_items(items: list[dict]) -> tuple[list[dict], int]:
@@ -134,11 +155,14 @@ def _unchanged_since_scan(item: dict) -> bool:
     """
     meta = item.get("meta") or {}
     # Mail and device backups cannot be rebuilt, so every file inside is checked.
-    if "tree_mtime" in meta:
+    if "tree_state" in meta:
         try:
-            return abs(newest_mtime(item["path"]) - meta["tree_mtime"]) < 1e-6
+            return tree_state(item["path"]) == meta["tree_state"]
         except OSError:
             return False
+    # Results saved by an earlier version noted only the newest mtime: not enough.
+    if "tree_mtime" in meta:
+        return False
     seen: float | None = meta.get("mtime")
     if seen is None:
         return True

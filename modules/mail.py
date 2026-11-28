@@ -1,5 +1,5 @@
 import os
-from modules.base import make_result, make_item, newest_mtime
+from modules.base import make_result, make_item, tree_state
 
 MAIL_DIR = os.path.expanduser("~/Library/Mail")
 
@@ -20,11 +20,15 @@ def scan() -> dict:
         return make_result("Mail Store", "review", action="trash",
                            suggestion="Mail.app directory not found")
     # Read before sizing, so a change during the walk is not recorded as seen
-    seen = newest_mtime(MAIL_DIR)
+    try:
+        seen = tree_state(MAIL_DIR)
+    except OSError:
+        return make_result("Mail Store", "review", action="trash",
+                           suggestion="The mail folder could not be read fully, or changed while being read, so it is not offered")
     size = _dir_size(MAIL_DIR)
     size_mb = size / (1024 ** 2)
     items = [make_item(MAIL_DIR, size, f"Mail Store ({size_mb:.0f} MB)",
-                       {"tree_mtime": seen})] if size > 0 else []
+                       {"tree_state": seen})] if size > 0 else []
     return make_result(
         "Mail Store",
         "review",
